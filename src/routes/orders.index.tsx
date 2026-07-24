@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { StatusChip } from "@/components/status-chip";
 import { OrderForm } from "@/components/order-form";
@@ -13,13 +13,30 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 import { ordersQueryOptions, rawOrdersQueryOptions, rawSuppliersQueryOptions } from "@/lib/data";
 import { deleteOrder } from "@/lib/thalae-mutations";
 import { importOrderFile } from "@/lib/thalae-import";
 import { exportBackup, exportOrdersExcel, importBackup } from "@/lib/thalae-export";
 import { shortMoney, fmtDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { Plus, Upload, Trash2, MoreHorizontal } from "lucide-react";
+import { Plus, Upload, Trash2, MoreHorizontal, X } from "lucide-react";
+import type { OrderStatus } from "@/lib/ledger-types";
+
+const STATUS_OPTIONS: { value: OrderStatus; label: string }[] = [
+  { value: "confirmed", label: "Commande confirmée" },
+  { value: "partially_shipped", label: "Expédiée partiellement" },
+  { value: "partially_invoiced", label: "Facturée partiellement" },
+  { value: "to_settle", label: "À solder" },
+  { value: "closed", label: "Clôturée" },
+];
 
 export const Route = createFileRoute("/orders/")({
   head: () => ({
@@ -42,8 +59,32 @@ function OrdersPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [tab, setTab] = useState<"all" | "payable" | "receivable">("all");
-  const list = orders.filter((o) => tab === "all" || o.side === tab);
-  const produitById = new Map(rawOrders.map((o) => [o.id, o.produit]));
+  const [statusFilter, setStatusFilter] = useState<OrderStatus | "all">("all");
+  const [supplierFilter, setSupplierFilter] = useState<string>("all");
+  const [search, setSearch] = useState("");
+  const produitById = useMemo(() => new Map(rawOrders.map((o) => [o.id, o.produit])), [rawOrders]);
+
+  const supplierOptions = useMemo(
+    () => Array.from(new Set(orders.map((o) => o.party.name))).sort((a, b) => a.localeCompare(b)),
+    [orders],
+  );
+
+  const list = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    return orders.filter((o) => {
+      if (tab !== "all" && o.side !== tab) return false;
+      if (statusFilter !== "all" && o.status !== statusFilter) return false;
+      if (supplierFilter !== "all" && o.party.name !== supplierFilter) return false;
+      if (needle) {
+        const produit = produitById.get(o.id) ?? "";
+        const haystack = `${o.number} ${o.party.name} ${produit}`.toLowerCase();
+        if (!haystack.includes(needle)) return false;
+      }
+      return true;
+    });
+  }, [orders, tab, statusFilter, supplierFilter, search, produitById]);
+
+  const hasActiveFilters = statusFilter !== "all" || supplierFilter !== "all" || search !== "";
 
   const [formOpen, setFormOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -132,6 +173,59 @@ function OrdersPage() {
             <Button size="sm" onClick={() => setFormOpen(true)}>
               <Plus /> Nouvelle commande
             </Button>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <Input
+            placeholder="Rechercher une référence, un fournisseur, un produit…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="max-w-xs"
+          />
+          <Select
+            value={statusFilter}
+            onValueChange={(v) => setStatusFilter(v as OrderStatus | "all")}
+          >
+            <SelectTrigger className="w-[200px]">
+              <SelectValue placeholder="Statut" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tous les statuts</SelectItem>
+              {STATUS_OPTIONS.map((s) => (
+                <SelectItem key={s.value} value={s.value}>
+                  {s.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={supplierFilter} onValueChange={setSupplierFilter}>
+            <SelectTrigger className="w-[220px]">
+              <SelectValue placeholder="Fournisseur" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tous les fournisseurs</SelectItem>
+              {supplierOptions.map((name) => (
+                <SelectItem key={name} value={name}>
+                  {name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {hasActiveFilters && (
+            <button
+              onClick={() => {
+                setStatusFilter("all");
+                setSupplierFilter("all");
+                setSearch("");
+              }}
+              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+            >
+              <X className="size-3.5" /> Réinitialiser les filtres
+            </button>
+          )}
+          <div className="text-xs text-muted-foreground ml-auto">
+            {list.length} commande{list.length > 1 ? "s" : ""}
           </div>
         </div>
 
