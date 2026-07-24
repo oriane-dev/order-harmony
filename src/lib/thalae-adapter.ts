@@ -111,10 +111,10 @@ export function rawOrderToLedgerOrder(row: RawOrder, supplierIndex: Map<string, 
     const pfId = `${row.id}:pf`;
     const pfMontant = num(df.proforma.montant);
     const pfPaid = (df.proforma.paiements ?? []).reduce((a, p) => a + num(p.montant), 0);
+    // A pro forma is a quote, NOT an invoice — its amount is never counted as "facturé".
+    // Only the factures added under a delivery (packing list) count toward invoiced.
+    // A deposit paid against the pro forma is still real money out, so it does count as paid.
     paid += pfPaid;
-    // A pro forma is itself a (partial) invoice — a deposit paid against it is not an
-    // overpayment, it's progress toward the order total. Count its amount as invoiced.
-    invoiced += pfMontant;
     docs.push({
       id: pfId,
       kind: "proforma",
