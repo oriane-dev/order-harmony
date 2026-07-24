@@ -88,6 +88,16 @@ export interface RawLegacyDocument {
   milestones?: RawMilestone[];
 }
 
+// Free-text notes/discussion attached to an order as a whole. New field added by this
+// app (not part of Thalae's original schema); harmless to Thalae, which preserves
+// unknown fields on the data blob as long as it spreads the existing object.
+export interface RawComment {
+  id: string;
+  text: string;
+  author?: string;
+  createdAt: string; // ISO timestamp
+}
+
 export interface RawOrder {
   id: string;
   reference?: string;
@@ -110,6 +120,7 @@ export interface RawOrder {
   attachments?: RawAttachment[];
   documents?: RawLegacyDocument[];
   docFlow?: RawDocFlow;
+  comments?: RawComment[];
 }
 
 export interface RawConditionPaiement {

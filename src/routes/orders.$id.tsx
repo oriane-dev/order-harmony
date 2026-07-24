@@ -9,6 +9,7 @@ import { Timeline } from "@/components/timeline";
 import { ReconciliationFlow } from "@/components/reconciliation-flow";
 import { DocflowEditor } from "@/components/docflow-editor";
 import { OrderForm } from "@/components/order-form";
+import { OrderComments } from "@/components/order-comments";
 import { Button } from "@/components/ui/button";
 import { findOrder, severityLabel } from "@/lib/ledger-types";
 import { ordersQueryOptions, rawOrdersQueryOptions } from "@/lib/data";
@@ -122,6 +123,7 @@ function OrderPage() {
                 <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
                   <Pencil /> Modifier
                 </Button>
+                {rawOrder && <OrderComments order={rawOrder} />}
                 <Button
                   variant="outline"
                   size="sm"

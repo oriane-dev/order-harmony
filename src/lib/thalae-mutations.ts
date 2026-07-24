@@ -9,6 +9,7 @@ import { supabase } from "@/lib/supabase";
 import { extractPaymentFromPdf } from "@/lib/thalae-extract";
 import type {
   RawAttachment,
+  RawComment,
   RawDocFlow,
   RawFacture,
   RawOrder,
@@ -462,6 +463,24 @@ export function removeAttachment(order: RawOrder, attachmentId: string): RawOrde
   const existing = (order.attachments ?? []).find((a) => a.id === attachmentId);
   removePdf(existing ? { id: existing.id } : undefined);
   return { ...order, attachments: (order.attachments ?? []).filter((a) => a.id !== attachmentId) };
+}
+
+/* ── ORDER COMMENTS (free-text notes on the order as a whole) ──────────── */
+
+export function addComment(order: RawOrder, text: string, author?: string): RawOrder {
+  const clean = text.trim();
+  if (!clean) return order;
+  const comment: RawComment = {
+    id: uid(),
+    text: clean,
+    author,
+    createdAt: new Date().toISOString(),
+  };
+  return { ...order, comments: [...(order.comments ?? []), comment] };
+}
+
+export function deleteComment(order: RawOrder, commentId: string): RawOrder {
+  return { ...order, comments: (order.comments ?? []).filter((c) => c.id !== commentId) };
 }
 
 export { getPlFactures };
