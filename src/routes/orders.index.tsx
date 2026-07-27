@@ -38,6 +38,22 @@ const STATUS_OPTIONS: { value: OrderStatus; label: string }[] = [
   { value: "closed", label: "Clôturée" },
 ];
 
+// The season is stored as the leading code of an order's `notes` field, e.g.
+// "AW26 (AUTOMN/WINTER 2026)" → "AW26".
+function seasonOf(notes: string | undefined): string {
+  const m = (notes ?? "").trim().match(/^([A-Za-z]{2}\d{2})/);
+  return m ? m[1].toUpperCase() : "";
+}
+
+// Chronological rank so the dropdown lists seasons in calendar order (by year,
+// then phase within the year) rather than alphabetically.
+const SEASON_PHASE_RANK: Record<string, number> = { CR: 0, PS: 1, SS: 2, PF: 3, AW: 4 };
+function seasonSortKey(code: string): number {
+  const m = code.match(/^([A-Z]{2})(\d{2})/);
+  if (!m) return Number.MAX_SAFE_INTEGER;
+  return parseInt(m[2], 10) * 10 + (SEASON_PHASE_RANK[m[1]] ?? 9);
+}
+
 export const Route = createFileRoute("/orders/")({
   head: () => ({
     meta: [
@@ -61,12 +77,25 @@ function OrdersPage() {
   const [tab, setTab] = useState<"all" | "payable" | "receivable">("all");
   const [statusFilter, setStatusFilter] = useState<OrderStatus | "all">("all");
   const [supplierFilter, setSupplierFilter] = useState<string>("all");
+  const [seasonFilter, setSeasonFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
   const produitById = useMemo(() => new Map(rawOrders.map((o) => [o.id, o.produit])), [rawOrders]);
+  const seasonById = useMemo(
+    () => new Map(rawOrders.map((o) => [o.id, seasonOf(o.notes)])),
+    [rawOrders],
+  );
 
   const supplierOptions = useMemo(
     () => Array.from(new Set(orders.map((o) => o.party.name))).sort((a, b) => a.localeCompare(b)),
     [orders],
+  );
+
+  const seasonOptions = useMemo(
+    () =>
+      Array.from(new Set(rawOrders.map((o) => seasonOf(o.notes)).filter(Boolean))).sort(
+        (a, b) => seasonSortKey(a) - seasonSortKey(b),
+      ),
+    [rawOrders],
   );
 
   const list = useMemo(() => {
@@ -75,6 +104,7 @@ function OrdersPage() {
       if (tab !== "all" && o.side !== tab) return false;
       if (statusFilter !== "all" && o.status !== statusFilter) return false;
       if (supplierFilter !== "all" && o.party.name !== supplierFilter) return false;
+      if (seasonFilter !== "all" && (seasonById.get(o.id) || "") !== seasonFilter) return false;
       if (needle) {
         const produit = produitById.get(o.id) ?? "";
         const haystack = `${o.number} ${o.party.name} ${produit}`.toLowerCase();
@@ -82,9 +112,10 @@ function OrdersPage() {
       }
       return true;
     });
-  }, [orders, tab, statusFilter, supplierFilter, search, produitById]);
+  }, [orders, tab, statusFilter, supplierFilter, seasonFilter, search, produitById, seasonById]);
 
-  const hasActiveFilters = statusFilter !== "all" || supplierFilter !== "all" || search !== "";
+  const hasActiveFilters =
+    statusFilter !== "all" || supplierFilter !== "all" || seasonFilter !== "all" || search !== "";
 
   const [formOpen, setFormOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -212,11 +243,25 @@ function OrdersPage() {
               ))}
             </SelectContent>
           </Select>
+          <Select value={seasonFilter} onValueChange={setSeasonFilter}>
+            <SelectTrigger className="w-[160px]">
+              <SelectValue placeholder="Saison" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Toutes les saisons</SelectItem>
+              {seasonOptions.map((code) => (
+                <SelectItem key={code} value={code}>
+                  {code}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           {hasActiveFilters && (
             <button
               onClick={() => {
                 setStatusFilter("all");
                 setSupplierFilter("all");
+                setSeasonFilter("all");
                 setSearch("");
               }}
               className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
