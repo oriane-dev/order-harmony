@@ -20,7 +20,7 @@ import { shortMoney } from "@/lib/format";
 import * as M from "@/lib/thalae-mutations";
 import type { PaymentTarget } from "@/lib/thalae-mutations";
 import type { RawFacture, RawOrder, RawPackingList, RawPayment, RawPdf } from "@/lib/thalae-types";
-import { Paperclip, Plus, Trash2, Upload, X, Pencil } from "lucide-react";
+import { Paperclip, Plus, Trash2, Upload, X, Pencil, Wallet } from "lucide-react";
 
 const CURRENCIES = ["EUR", "USD", "GBP", "CNY"] as const;
 
@@ -379,6 +379,7 @@ function FactureRow({
   mutation: ReturnType<typeof useOrderMutation>;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
+  const remaining = M.factureRemaining(order, plId, facture.id);
   return (
     <div className="flex items-center gap-3 text-sm bg-surface-2 rounded-md px-3 py-2">
       <input
@@ -425,6 +426,20 @@ function FactureRow({
         />
       </div>
       <span className="flex-1" />
+      {remaining > 0 ? (
+        <button
+          disabled={mutation.isPending}
+          onClick={() => mutation.mutate((o) => M.settleFacture(o, plId, facture.id))}
+          className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md border border-border text-accent hover:bg-surface disabled:opacity-50"
+          title="Ajoute automatiquement une preuve de virement pour le montant restant"
+        >
+          <Wallet className="size-3.5" /> Solder {shortMoney(remaining, facture.devise || currency)}
+        </button>
+      ) : (
+        (facture.montant ?? 0) > 0 && (
+          <span className="text-[10px] uppercase tracking-widest text-success">Soldée</span>
+        )
+      )}
       <button
         onClick={() => mutation.mutate((o) => M.removeFacture(o, plId, facture.id))}
         className="text-muted-foreground hover:text-destructive"

@@ -431,6 +431,39 @@ export function deletePayment(order: RawOrder, target: PaymentTarget, paymentId:
   );
 }
 
+// Outstanding balance still due on a facture: its amount minus everything already paid
+// on its packing list. (Payments are tracked per delivery, not per facture; on the
+// common single-facture delivery this is simply "amount − paid".)
+export function factureRemaining(order: RawOrder, plId: string, factureId: string): number {
+  const df = ensureDocFlow(order);
+  const pl = (df.packingLists ?? []).find((p) => p.id === plId);
+  if (!pl) return 0;
+  const facture = getPlFactures(pl).find((f) => f.id === factureId);
+  if (!facture) return 0;
+  const due = facture.montant ?? facture.montantBrut ?? 0;
+  const paidSoFar = (pl.paiements ?? []).reduce((a, p) => a + (p.montant ?? 0), 0);
+  return Math.round((due - paidSoFar) * 100) / 100;
+}
+
+// "Solder" a facture: append a payment for the outstanding balance so the facture is
+// fully covered. The new payment has no date/PDF yet — it shows in the delivery's
+// "Preuve de paiement" section and stays fully editable (amount, date, justificatif).
+export function settleFacture(order: RawOrder, plId: string, factureId: string): RawOrder {
+  const remaining = factureRemaining(order, plId, factureId);
+  if (remaining <= 0) return order;
+  const df = ensureDocFlow(order);
+  const pl = (df.packingLists ?? []).find((p) => p.id === plId);
+  const facture = pl && getPlFactures(pl).find((f) => f.id === factureId);
+  const target: PaymentTarget = { type: "packingList", plId };
+  const payment: RawPayment = {
+    id: uid(),
+    montant: remaining,
+    date: "",
+    ...(facture && facture.devise ? { devise: facture.devise } : {}),
+  };
+  return withPayments(order, target, [...getPayments(order, target), payment]);
+}
+
 /* ── GENERIC ORDER ATTACHMENTS (flat list, independent of docFlow) ────── */
 
 export async function addAttachment(order: RawOrder, file: File): Promise<RawOrder> {
