@@ -27,15 +27,34 @@ const CURRENCIES = ["EUR", "USD", "GBP", "CNY"] as const;
 function useOrderMutation(orderId: string) {
   const queryClient = useQueryClient();
   return useMutation({
+    // Serialize every mutation for this order: rapid successive actions (e.g. deleting
+    // two documents in a row) run one-after-another instead of overlapping. Without this
+    // their saveOrder calls race and the last writer wins, silently restoring what an
+    // earlier action removed — so a deletion appears not to "stick".
+    scope: { id: `order-mutation-${orderId}` },
     mutationFn: async (updater: (order: RawOrder) => Promise<RawOrder> | RawOrder) => {
+      // Read the freshest order from cache. Crucially, updater() runs against `current`
+      // and the result is written back to the cache *before* the async saveOrder — so a
+      // second action fired before the server round-trip / refetch completes reads the
+      // already-updated order instead of the stale one. Without this, two quick edits
+      // (e.g. deleting two documents in a row) both start from the same snapshot and the
+      // second save silently restores what the first removed, so the deletion "doesn't
+      // stick." Deletes also need `docFlow` served explicitly since saveOrder cleans it.
       const orders = queryClient.getQueryData<RawOrder[]>(["orders", "raw"]) ?? [];
       const current = orders.find((o) => o.id === orderId);
       if (!current) throw new Error("Commande introuvable dans le cache.");
       const next = await updater(current);
+      queryClient.setQueryData<RawOrder[]>(["orders", "raw"], (old) =>
+        (old ?? []).map((o) => (o.id === orderId ? next : o)),
+      );
       await M.saveOrder(next);
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["orders"] }),
-    onError: (e: Error) => alert(e.message || "Une erreur est survenue."),
+    onError: (e: Error) => {
+      // roll back the optimistic cache write so the UI reflects the real server state
+      queryClient.invalidateQueries({ queryKey: ["orders"] });
+      alert(e.message || "Une erreur est survenue.");
+    },
   });
 }
 

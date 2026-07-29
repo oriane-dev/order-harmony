@@ -10,14 +10,23 @@ import { MessageSquare, Trash2, Send } from "lucide-react";
 function useOrderMutation(orderId: string) {
   const queryClient = useQueryClient();
   return useMutation({
+    scope: { id: `order-mutation-${orderId}` },
     mutationFn: async (updater: (order: RawOrder) => RawOrder) => {
       const orders = queryClient.getQueryData<RawOrder[]>(["orders", "raw"]) ?? [];
       const current = orders.find((o) => o.id === orderId);
       if (!current) throw new Error("Commande introuvable dans le cache.");
-      await M.saveOrder(updater(current));
+      const next = updater(current);
+      // write back before the async save so rapid successive actions read fresh state
+      queryClient.setQueryData<RawOrder[]>(["orders", "raw"], (old) =>
+        (old ?? []).map((o) => (o.id === orderId ? next : o)),
+      );
+      await M.saveOrder(next);
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["orders"] }),
-    onError: (e: Error) => alert(e.message || "Une erreur est survenue."),
+    onError: (e: Error) => {
+      queryClient.invalidateQueries({ queryKey: ["orders"] });
+      alert(e.message || "Une erreur est survenue.");
+    },
   });
 }
 
