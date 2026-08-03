@@ -8,6 +8,7 @@ import {
   BellDot,
   Truck,
   CalendarClock,
+  CalendarRange,
   Search,
   Moon,
   Sun,
@@ -27,6 +28,7 @@ const nav = [
   { to: "/alerts", label: "Alertes", icon: BellDot },
   { to: "/suppliers", label: "Fournisseurs", icon: Truck },
   { to: "/echeances", label: "Échéances", icon: CalendarClock },
+  { to: "/calendrier", label: "Calendrier", icon: CalendarRange },
 ];
 
 export function AppShell({ children }: { children: ReactNode }) {

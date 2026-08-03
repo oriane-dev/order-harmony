@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as SuppliersRouteImport } from './routes/suppliers'
 import { Route as ReconciliationRouteImport } from './routes/reconciliation'
 import { Route as EcheancesRouteImport } from './routes/echeances'
+import { Route as CalendrierRouteImport } from './routes/calendrier'
 import { Route as AlertsRouteImport } from './routes/alerts'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as OrdersIndexRouteImport } from './routes/orders.index'
@@ -30,6 +31,11 @@ const ReconciliationRoute = ReconciliationRouteImport.update({
 const EcheancesRoute = EcheancesRouteImport.update({
   id: '/echeances',
   path: '/echeances',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CalendrierRoute = CalendrierRouteImport.update({
+  id: '/calendrier',
+  path: '/calendrier',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AlertsRoute = AlertsRouteImport.update({
@@ -56,6 +62,7 @@ const OrdersIdRoute = OrdersIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/alerts': typeof AlertsRoute
+  '/calendrier': typeof CalendrierRoute
   '/echeances': typeof EcheancesRoute
   '/reconciliation': typeof ReconciliationRoute
   '/suppliers': typeof SuppliersRoute
@@ -65,6 +72,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/alerts': typeof AlertsRoute
+  '/calendrier': typeof CalendrierRoute
   '/echeances': typeof EcheancesRoute
   '/reconciliation': typeof ReconciliationRoute
   '/suppliers': typeof SuppliersRoute
@@ -75,6 +83,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/alerts': typeof AlertsRoute
+  '/calendrier': typeof CalendrierRoute
   '/echeances': typeof EcheancesRoute
   '/reconciliation': typeof ReconciliationRoute
   '/suppliers': typeof SuppliersRoute
@@ -86,6 +95,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/alerts'
+    | '/calendrier'
     | '/echeances'
     | '/reconciliation'
     | '/suppliers'
@@ -95,6 +105,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/alerts'
+    | '/calendrier'
     | '/echeances'
     | '/reconciliation'
     | '/suppliers'
@@ -104,6 +115,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/alerts'
+    | '/calendrier'
     | '/echeances'
     | '/reconciliation'
     | '/suppliers'
@@ -114,6 +126,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AlertsRoute: typeof AlertsRoute
+  CalendrierRoute: typeof CalendrierRoute
   EcheancesRoute: typeof EcheancesRoute
   ReconciliationRoute: typeof ReconciliationRoute
   SuppliersRoute: typeof SuppliersRoute
@@ -142,6 +155,13 @@ declare module '@tanstack/react-router' {
       path: '/echeances'
       fullPath: '/echeances'
       preLoaderRoute: typeof EcheancesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/calendrier': {
+      id: '/calendrier'
+      path: '/calendrier'
+      fullPath: '/calendrier'
+      preLoaderRoute: typeof CalendrierRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/alerts': {
@@ -178,6 +198,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AlertsRoute: AlertsRoute,
+  CalendrierRoute: CalendrierRoute,
   EcheancesRoute: EcheancesRoute,
   ReconciliationRoute: ReconciliationRoute,
   SuppliersRoute: SuppliersRoute,
