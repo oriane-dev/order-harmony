@@ -28,29 +28,38 @@ function uid(): string {
 
 /* ── ORDER / SUPPLIER PERSISTENCE ─────────────────────────────────────── */
 
-export async function saveOrder(order: RawOrder): Promise<void> {
+// Supplier orders live in "orders", customer orders in the mirror table
+// "customer_orders"; parties likewise in "suppliers" / "customers". The table
+// defaults to the supplier side so all existing call sites keep working unchanged.
+export type OrdersTable = "orders" | "customer_orders";
+export type PartyTable = "suppliers" | "customers";
+
+export async function saveOrder(order: RawOrder, table: OrdersTable = "orders"): Promise<void> {
   // defensive: never let a stray raw File/Blob end up under attachments[].data
   const clean = { ...order, attachments: (order.attachments ?? []).map(({ ...r }) => r) };
   const { error } = await supabase
-    .from("orders")
+    .from(table)
     .upsert({ id: order.id, data: clean, updated_at: new Date().toISOString() });
   if (error) throw error;
 }
 
-export async function deleteOrder(id: string): Promise<void> {
-  const { error } = await supabase.from("orders").delete().eq("id", id);
+export async function deleteOrder(id: string, table: OrdersTable = "orders"): Promise<void> {
+  const { error } = await supabase.from(table).delete().eq("id", id);
   if (error) throw error;
 }
 
-export async function saveSupplier(supplier: RawSupplier): Promise<void> {
+export async function saveSupplier(
+  supplier: RawSupplier,
+  table: PartyTable = "suppliers",
+): Promise<void> {
   const { error } = await supabase
-    .from("suppliers")
+    .from(table)
     .upsert({ id: supplier.id, data: supplier, updated_at: new Date().toISOString() });
   if (error) throw error;
 }
 
-export async function deleteSupplier(id: string): Promise<void> {
-  const { error } = await supabase.from("suppliers").delete().eq("id", id);
+export async function deleteSupplier(id: string, table: PartyTable = "suppliers"): Promise<void> {
+  const { error } = await supabase.from(table).delete().eq("id", id);
   if (error) throw error;
 }
 

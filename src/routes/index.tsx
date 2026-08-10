@@ -3,8 +3,9 @@ import { useSuspenseQuery } from "@tanstack/react-query";
 import { AppShell } from "@/components/app-shell";
 import { KpiCard } from "@/components/kpi-card";
 import { StatusChip } from "@/components/status-chip";
+import { OrderLink } from "@/components/order-link";
 import { summary, globalAlerts } from "@/lib/ledger-types";
-import { ordersQueryOptions } from "@/lib/data";
+import { ordersQueryOptions, customerOrdersQueryOptions } from "@/lib/data";
 import { shortMoney, fmtDate } from "@/lib/format";
 import { ArrowUpRight, AlertTriangle } from "lucide-react";
 
@@ -23,7 +24,9 @@ export const Route = createFileRoute("/")({
 });
 
 function Home() {
-  const { data: orders } = useSuspenseQuery(ordersQueryOptions());
+  const { data: supplierOrders } = useSuspenseQuery(ordersQueryOptions());
+  const { data: customerOrders } = useSuspenseQuery(customerOrdersQueryOptions());
+  const orders = [...supplierOrders, ...customerOrders];
   const s = summary(orders);
   const alerts = globalAlerts(orders);
   const recent = orders.slice(0, 5);
@@ -76,10 +79,9 @@ function Home() {
             </div>
             <div className="divide-y divide-border">
               {recent.map((o) => (
-                <Link
+                <OrderLink
                   key={o.id}
-                  to="/orders/$id"
-                  params={{ id: o.id }}
+                  order={o}
                   className="grid grid-cols-12 gap-3 py-3.5 items-center hover:bg-surface-2 -mx-2 px-2 rounded-md transition-colors"
                 >
                   <div className="col-span-4">
@@ -109,7 +111,7 @@ function Home() {
                   <div className="col-span-2 text-right font-serif text-lg num">
                     {shortMoney(o.totals.ordered, o.currency)}
                   </div>
-                </Link>
+                </OrderLink>
               ))}
             </div>
           </div>
@@ -136,24 +138,26 @@ function Home() {
                 </Link>
               </div>
               <div className="mt-4 space-y-3">
-                {alerts.slice(0, 3).map((a) => (
-                  <Link
-                    key={a.id}
-                    to="/orders/$id"
-                    params={{ id: a.orderId ?? "" }}
-                    className="flex gap-3 -mx-2 px-2 py-2 rounded-md hover:bg-surface-2 transition-colors"
-                  >
-                    <div
-                      className={`mt-0.5 size-6 rounded-full grid place-items-center shrink-0 ${a.severity === "high" ? "bg-destructive/10 text-destructive" : "bg-warning/20 text-warning-foreground"}`}
+                {alerts.slice(0, 3).map((a) => {
+                  const ao = orders.find((o) => o.id === a.orderId);
+                  return (
+                    <OrderLink
+                      key={a.id}
+                      order={{ id: a.orderId ?? "", side: ao?.side ?? "payable" }}
+                      className="flex gap-3 -mx-2 px-2 py-2 rounded-md hover:bg-surface-2 transition-colors"
                     >
-                      <AlertTriangle className="size-3.5" />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium truncate">{a.title}</div>
-                      <div className="text-xs text-muted-foreground truncate">{a.detail}</div>
-                    </div>
-                  </Link>
-                ))}
+                      <div
+                        className={`mt-0.5 size-6 rounded-full grid place-items-center shrink-0 ${a.severity === "high" ? "bg-destructive/10 text-destructive" : "bg-warning/20 text-warning-foreground"}`}
+                      >
+                        <AlertTriangle className="size-3.5" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium truncate">{a.title}</div>
+                        <div className="text-xs text-muted-foreground truncate">{a.detail}</div>
+                      </div>
+                    </OrderLink>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -164,7 +168,9 @@ function Home() {
           <ul className="space-y-3">
             {orders
               .flatMap((o) =>
-                o.timeline.slice(-1).map((t) => ({ ...t, orderId: o.id, party: o.party.name })),
+                o.timeline
+                  .slice(-1)
+                  .map((t) => ({ ...t, orderId: o.id, party: o.party.name, side: o.side })),
               )
               .sort((a, b) => (a.at < b.at ? 1 : -1))
               .slice(0, 6)
@@ -175,13 +181,12 @@ function Home() {
                     <span className="font-medium">{t.title}</span>
                     <span className="text-muted-foreground"> · {t.party}</span>
                   </div>
-                  <Link
-                    to="/orders/$id"
-                    params={{ id: t.orderId }}
+                  <OrderLink
+                    order={{ id: t.orderId, side: t.side }}
                     className="text-xs text-accent hover:underline"
                   >
                     {t.orderId}
-                  </Link>
+                  </OrderLink>
                 </li>
               ))}
           </ul>

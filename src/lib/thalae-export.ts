@@ -4,6 +4,7 @@
 
 import * as XLSX from "xlsx";
 import { saveOrder } from "@/lib/thalae-mutations";
+import type { OrdersTable } from "@/lib/thalae-mutations";
 import type { RawOrder, RawSupplier } from "@/lib/thalae-types";
 import { fmtDate } from "@/lib/format";
 
@@ -63,38 +64,49 @@ export function exportBackup(orders: RawOrder[], suppliers: RawSupplier[]): void
 // CURRENT order set. On a match, only scalar business fields are overwritten —
 // docFlow/attachments/documents on the existing order are left untouched, so a
 // restore never clobbers real financial data already recorded against an order.
-async function upsertByRef(currentOrders: RawOrder[], incoming: RawOrder): Promise<void> {
+async function upsertByRef(
+  currentOrders: RawOrder[],
+  incoming: RawOrder,
+  table: OrdersTable,
+): Promise<void> {
   const existing = incoming.reference
     ? currentOrders.find((o) => o.reference === incoming.reference)
     : undefined;
   if (existing) {
-    await saveOrder({
-      ...existing,
-      fournisseur: incoming.fournisseur,
-      produit: incoming.produit,
-      montant: incoming.montant,
-      devise: incoming.devise,
-      dateCommande: incoming.dateCommande,
-      dateLivraison: incoming.dateLivraison,
-      incoterms: incoming.incoterms,
-      notes: incoming.notes,
-      quantite: incoming.quantite,
-      nop: incoming.nop,
-      progressProduction: incoming.progressProduction,
-      progressLivraison: incoming.progressLivraison,
-    });
+    await saveOrder(
+      {
+        ...existing,
+        fournisseur: incoming.fournisseur,
+        produit: incoming.produit,
+        montant: incoming.montant,
+        devise: incoming.devise,
+        dateCommande: incoming.dateCommande,
+        dateLivraison: incoming.dateLivraison,
+        incoterms: incoming.incoterms,
+        notes: incoming.notes,
+        quantite: incoming.quantite,
+        nop: incoming.nop,
+        progressProduction: incoming.progressProduction,
+        progressLivraison: incoming.progressLivraison,
+      },
+      table,
+    );
   } else {
-    await saveOrder(incoming);
+    await saveOrder(incoming, table);
   }
 }
 
-export async function importBackup(file: File, currentOrders: RawOrder[]): Promise<number> {
+export async function importBackup(
+  file: File,
+  currentOrders: RawOrder[],
+  table: OrdersTable = "orders",
+): Promise<number> {
   const text = await file.text();
   const payload = JSON.parse(text);
   if (!payload.orders)
     throw new Error("Fichier de sauvegarde invalide — aucun tableau de commandes.");
   for (const o of payload.orders as RawOrder[]) {
-    await upsertByRef(currentOrders, o);
+    await upsertByRef(currentOrders, o, table);
   }
   return payload.orders.length;
 }

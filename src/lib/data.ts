@@ -4,24 +4,27 @@ import { buildSupplierIndex, rawOrderToLedgerOrder } from "@/lib/thalae-adapter"
 import type { Order } from "@/lib/ledger-types";
 import type { RawOrder, RawSupplier } from "@/lib/thalae-types";
 
-async function fetchRawOrders(): Promise<RawOrder[]> {
-  const { data, error } = await supabase.from("orders").select("data");
-  if (error) throw error;
-  return (data ?? []).map((r) => r.data as RawOrder);
+// Reads a jsonb-blob table. `optional` tables (the customer ones) may not exist yet —
+// the user creates them in Supabase before importing — so a missing-relation error is
+// swallowed and treated as "empty" so the whole app keeps working until then.
+async function fetchBlobTable<T>(table: string, optional = false): Promise<T[]> {
+  const { data, error } = await supabase.from(table).select("data");
+  if (error) {
+    if (optional) {
+      console.warn(`[data] table "${table}" unavailable (${error.message}) — treating as empty.`);
+      return [];
+    }
+    throw error;
+  }
+  return (data ?? []).map((r) => r.data as T);
 }
 
-async function fetchRawSuppliers(): Promise<RawSupplier[]> {
-  const { data, error } = await supabase.from("suppliers").select("data");
-  if (error) throw error;
-  return (data ?? []).map((r) => r.data as RawSupplier);
-}
+/* ── SUPPLIERS (achats) ────────────────────────────────────────────────── */
 
-// Raw rows, as Thalae itself reads/writes them — used by the create/edit/import UI
-// and the docFlow editor, which need the real structure, not the flattened view.
 export function rawOrdersQueryOptions() {
   return queryOptions({
     queryKey: ["orders", "raw"],
-    queryFn: fetchRawOrders,
+    queryFn: () => fetchBlobTable<RawOrder>("orders"),
     staleTime: 60_000,
   });
 }
@@ -29,20 +32,50 @@ export function rawOrdersQueryOptions() {
 export function rawSuppliersQueryOptions() {
   return queryOptions({
     queryKey: ["suppliers"],
-    queryFn: fetchRawSuppliers,
+    queryFn: () => fetchBlobTable<RawSupplier>("suppliers"),
     staleTime: 60_000,
   });
 }
 
-// Adapted to the Order/Party shape the read-only views (dashboard, orders list,
-// reconciliation, alerts, échéances, suppliers rollup) already render.
+// Adapted Order[] (side = payable) for the read views.
 export function ordersQueryOptions() {
   return queryOptions({
     queryKey: ["orders"],
     queryFn: async (): Promise<Order[]> => {
-      const rows = await fetchRawOrders();
-      const supplierIndex = buildSupplierIndex(rows.map((r) => r.fournisseur ?? ""));
-      return rows.map((r) => rawOrderToLedgerOrder(r, supplierIndex));
+      const rows = await fetchBlobTable<RawOrder>("orders");
+      const index = buildSupplierIndex(rows.map((r) => r.fournisseur ?? ""));
+      return rows.map((r) => rawOrderToLedgerOrder(r, index, "payable"));
+    },
+    staleTime: 60_000,
+  });
+}
+
+/* ── CUSTOMERS (ventes) — tables may not exist yet, so fetches are optional ─ */
+
+export function rawCustomerOrdersQueryOptions() {
+  return queryOptions({
+    queryKey: ["customer_orders", "raw"],
+    queryFn: () => fetchBlobTable<RawOrder>("customer_orders", true),
+    staleTime: 60_000,
+  });
+}
+
+export function rawCustomersQueryOptions() {
+  return queryOptions({
+    queryKey: ["customers"],
+    queryFn: () => fetchBlobTable<RawSupplier>("customers", true),
+    staleTime: 60_000,
+  });
+}
+
+// Adapted Order[] (side = receivable) for the read views.
+export function customerOrdersQueryOptions() {
+  return queryOptions({
+    queryKey: ["customer_orders"],
+    queryFn: async (): Promise<Order[]> => {
+      const rows = await fetchBlobTable<RawOrder>("customer_orders", true);
+      const index = buildSupplierIndex(rows.map((r) => r.fournisseur ?? ""));
+      return rows.map((r) => rawOrderToLedgerOrder(r, index, "receivable"));
     },
     staleTime: 60_000,
   });

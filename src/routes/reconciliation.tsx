@@ -2,8 +2,10 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { AppShell } from "@/components/app-shell";
 import { ReconciliationFlow } from "@/components/reconciliation-flow";
-import { ordersQueryOptions } from "@/lib/data";
+import { OrderLink } from "@/components/order-link";
+import { ordersQueryOptions, customerOrdersQueryOptions } from "@/lib/data";
 import { StatusChip } from "@/components/status-chip";
+import type { Order } from "@/lib/ledger-types";
 
 export const Route = createFileRoute("/reconciliation")({
   head: () => ({
@@ -19,11 +21,58 @@ export const Route = createFileRoute("/reconciliation")({
   component: ReconciliationPage,
 });
 
+function FlowSection({
+  title,
+  eyebrow,
+  orders,
+}: {
+  title: string;
+  eyebrow: string;
+  orders: Order[];
+}) {
+  return (
+    <section className="space-y-4">
+      <h2 className="font-serif text-3xl">
+        {title}
+        <span className="text-muted-foreground text-lg"> · {orders.length}</span>
+      </h2>
+      {orders.length === 0 && (
+        <div className="card-elev px-6 py-8 text-sm text-muted-foreground text-center">
+          Aucune commande.
+        </div>
+      )}
+      <div className="space-y-6">
+        {orders.map((o) => (
+          <section key={o.id} className="card-elev p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-xs uppercase tracking-widest text-muted-foreground">
+                  {eyebrow}
+                </div>
+                <div className="flex items-center gap-3 mt-1">
+                  <OrderLink order={o} className="font-serif text-2xl hover:underline">
+                    {o.number}
+                  </OrderLink>
+                  <StatusChip status={o.status} />
+                  <span className="text-sm text-muted-foreground">· {o.party.name}</span>
+                </div>
+              </div>
+            </div>
+            <ReconciliationFlow docs={o.docs} />
+          </section>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function ReconciliationPage() {
-  const { data: orders } = useSuspenseQuery(ordersQueryOptions());
+  const { data: supplierOrders } = useSuspenseQuery(ordersQueryOptions());
+  const { data: customerOrders } = useSuspenseQuery(customerOrdersQueryOptions());
+
   return (
     <AppShell>
-      <div className="max-w-[1400px] mx-auto space-y-8">
+      <div className="max-w-[1400px] mx-auto space-y-10">
         <div>
           <div className="text-xs uppercase tracking-widest text-muted-foreground">
             Rapprochement
@@ -35,25 +84,8 @@ function ReconciliationPage() {
           </p>
         </div>
 
-        <div className="space-y-6">
-          {orders.map((o) => (
-            <section key={o.id} className="card-elev p-6 space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-xs uppercase tracking-widest text-muted-foreground">
-                    {o.side === "payable" ? "Commande fournisseur" : "Commande client"}
-                  </div>
-                  <div className="flex items-center gap-3 mt-1">
-                    <h2 className="font-serif text-2xl">{o.number}</h2>
-                    <StatusChip status={o.status} />
-                    <span className="text-sm text-muted-foreground">· {o.party.name}</span>
-                  </div>
-                </div>
-              </div>
-              <ReconciliationFlow docs={o.docs} />
-            </section>
-          ))}
-        </div>
+        <FlowSection title="Fournisseurs" eyebrow="Commande fournisseur" orders={supplierOrders} />
+        <FlowSection title="Clients" eyebrow="Commande client" orders={customerOrders} />
       </div>
     </AppShell>
   );

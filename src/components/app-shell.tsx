@@ -4,9 +4,11 @@ import { type ReactNode, useEffect, useMemo, useState } from "react";
 import {
   LayoutDashboard,
   FileStack,
+  ShoppingCart,
   Network,
   BellDot,
   Truck,
+  Users,
   CalendarClock,
   CalendarRange,
   Search,
@@ -17,16 +19,19 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { globalAlerts as computeGlobalAlerts } from "@/lib/ledger-types";
-import { ordersQueryOptions } from "@/lib/data";
+import { ordersQueryOptions, customerOrdersQueryOptions } from "@/lib/data";
 import { useOrdersRealtimeSync } from "@/hooks/use-orders-realtime";
 import { SettingsDialog } from "@/components/settings-dialog";
+import { OrderLink } from "@/components/order-link";
 
 const nav = [
   { to: "/", label: "Tableau de bord", icon: LayoutDashboard },
-  { to: "/orders", label: "Commandes", icon: FileStack },
+  { to: "/orders", label: "Commandes fournisseurs", icon: FileStack },
+  { to: "/customer-orders", label: "Commandes clients", icon: ShoppingCart },
   { to: "/reconciliation", label: "Rapprochement", icon: Network },
   { to: "/alerts", label: "Alertes", icon: BellDot },
   { to: "/suppliers", label: "Fournisseurs", icon: Truck },
+  { to: "/customers", label: "Clients", icon: Users },
   { to: "/echeances", label: "Échéances", icon: CalendarClock },
   { to: "/calendrier", label: "Calendrier", icon: CalendarRange },
 ];
@@ -34,7 +39,8 @@ const nav = [
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { data: orders } = useSuspenseQuery(ordersQueryOptions());
-  const globalAlerts = computeGlobalAlerts(orders);
+  const { data: customerOrders } = useSuspenseQuery(customerOrdersQueryOptions());
+  const globalAlerts = computeGlobalAlerts([...orders, ...customerOrders]);
   useOrdersRealtimeSync();
   const [dark, setDark] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -74,11 +80,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   // clicking a just-filtered-in result hang the standalone export outright — clicking a
   // result present since the modal opened was always fine, only freshly (re)mounted
   // results triggered it.
+  const allOrders = useMemo(() => [...orders, ...customerOrders], [orders, customerOrders]);
   const matchIds = useMemo(() => {
     if (!q) return null;
     const needle = q.toLowerCase();
     return new Set(
-      orders
+      allOrders
         .filter(
           (o) =>
             o.number.toLowerCase().includes(needle) ||
@@ -87,7 +94,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         )
         .map((o) => o.id),
     );
-  }, [q, orders]);
+  }, [q, allOrders]);
   const hasResults = matchIds === null || matchIds.size > 0;
 
   return (
@@ -214,11 +221,10 @@ export function AppShell({ children }: { children: ReactNode }) {
               {!hasResults && (
                 <div className="p-6 text-sm text-muted-foreground text-center">Aucun résultat</div>
               )}
-              {orders.map((o) => (
-                <Link
+              {allOrders.map((o) => (
+                <OrderLink
                   key={o.id}
-                  to="/orders/$id"
-                  params={{ id: o.id }}
+                  order={o}
                   onClick={() => setSearchOpen(false)}
                   className={cn(
                     "flex items-center gap-3 px-4 py-3 hover:bg-surface-2",
@@ -233,7 +239,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                     <div className="text-xs text-muted-foreground truncate">{o.party.name}</div>
                   </div>
                   <div className="text-xs text-muted-foreground">{o.currency}</div>
-                </Link>
+                </OrderLink>
               ))}
             </div>
           </div>

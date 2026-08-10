@@ -30,6 +30,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { saveSupplier } from "@/lib/thalae-mutations";
 import type { RawSupplier } from "@/lib/thalae-types";
+import { ENTITIES, type Entity } from "@/lib/entities";
 
 const schema = z.object({
   nom: z.string().min(1, "Requis"),
@@ -65,11 +66,14 @@ export function SupplierForm({
   open,
   onOpenChange,
   supplier,
+  entity = "supplier",
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   supplier?: RawSupplier;
+  entity?: Entity;
 }) {
+  const cfg = ENTITIES[entity];
   const queryClient = useQueryClient();
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -84,11 +88,11 @@ export function SupplierForm({
   const mutation = useMutation({
     mutationFn: async (values: FormValues) => {
       const next: RawSupplier = { ...supplier, id: supplier?.id ?? uid(), ...values };
-      await saveSupplier(next);
+      await saveSupplier(next, cfg.partyTable);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["suppliers"] });
-      queryClient.invalidateQueries({ queryKey: ["orders"] });
+      queryClient.invalidateQueries({ queryKey: cfg.partyKey });
+      queryClient.invalidateQueries({ queryKey: cfg.ordersKey });
       onOpenChange(false);
     },
   });
@@ -97,7 +101,11 @@ export function SupplierForm({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{supplier ? "Modifier le fournisseur" : "Nouveau fournisseur"}</DialogTitle>
+          <DialogTitle>
+            {supplier
+              ? `Modifier le ${cfg.party.toLowerCase()}`
+              : `Nouveau ${cfg.party.toLowerCase()}`}
+          </DialogTitle>
         </DialogHeader>
         <Form {...form}>
           <form

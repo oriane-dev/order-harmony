@@ -20,12 +20,14 @@ import { shortMoney } from "@/lib/format";
 import * as M from "@/lib/thalae-mutations";
 import type { PaymentTarget } from "@/lib/thalae-mutations";
 import type { RawFacture, RawOrder, RawPackingList, RawPayment, RawPdf } from "@/lib/thalae-types";
+import { ENTITIES, type Entity } from "@/lib/entities";
 import { Paperclip, Plus, Trash2, Upload, X, Pencil, Wallet } from "lucide-react";
 
 const CURRENCIES = ["EUR", "USD", "GBP", "CNY"] as const;
 
-function useOrderMutation(orderId: string) {
+function useOrderMutation(orderId: string, entity: Entity) {
   const queryClient = useQueryClient();
+  const cfg = ENTITIES[entity];
   return useMutation({
     // Serialize every mutation for this order: rapid successive actions (e.g. deleting
     // two documents in a row) run one-after-another instead of overlapping. Without this
@@ -40,19 +42,19 @@ function useOrderMutation(orderId: string) {
       // (e.g. deleting two documents in a row) both start from the same snapshot and the
       // second save silently restores what the first removed, so the deletion "doesn't
       // stick." Deletes also need `docFlow` served explicitly since saveOrder cleans it.
-      const orders = queryClient.getQueryData<RawOrder[]>(["orders", "raw"]) ?? [];
+      const orders = queryClient.getQueryData<RawOrder[]>(cfg.rawOrdersKey) ?? [];
       const current = orders.find((o) => o.id === orderId);
       if (!current) throw new Error("Commande introuvable dans le cache.");
       const next = await updater(current);
-      queryClient.setQueryData<RawOrder[]>(["orders", "raw"], (old) =>
+      queryClient.setQueryData<RawOrder[]>(cfg.rawOrdersKey, (old) =>
         (old ?? []).map((o) => (o.id === orderId ? next : o)),
       );
-      await M.saveOrder(next);
+      await M.saveOrder(next, cfg.ordersTable);
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["orders"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: cfg.ordersKey }),
     onError: (e: Error) => {
       // roll back the optimistic cache write so the UI reflects the real server state
-      queryClient.invalidateQueries({ queryKey: ["orders"] });
+      queryClient.invalidateQueries({ queryKey: cfg.ordersKey });
       alert(e.message || "Une erreur est survenue.");
     },
   });
@@ -550,8 +552,14 @@ function PackingListCard({
 
 /* ── Main editor ───────────────────────────────────────────────────────── */
 
-export function DocflowEditor({ order }: { order: RawOrder }) {
-  const mutation = useOrderMutation(order.id);
+export function DocflowEditor({
+  order,
+  entity = "supplier",
+}: {
+  order: RawOrder;
+  entity?: Entity;
+}) {
+  const mutation = useOrderMutation(order.id, entity);
   const currency = order.devise || "EUR";
   const df = order.docFlow;
 

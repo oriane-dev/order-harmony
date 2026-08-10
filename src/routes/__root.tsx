@@ -11,7 +11,7 @@ import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
-import { ordersQueryOptions } from "../lib/data";
+import { ordersQueryOptions, customerOrdersQueryOptions } from "../lib/data";
 
 function NotFoundComponent() {
   return (
@@ -74,7 +74,12 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
 }
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
-  loader: ({ context }) => context.queryClient.ensureQueryData(ordersQueryOptions()),
+  loader: async ({ context }) => {
+    await Promise.all([
+      context.queryClient.ensureQueryData(ordersQueryOptions()),
+      context.queryClient.ensureQueryData(customerOrdersQueryOptions()),
+    ]);
+  },
   head: () => ({
     meta: [
       { charSet: "utf-8" },

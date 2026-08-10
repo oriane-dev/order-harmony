@@ -62,7 +62,11 @@ function edgeSet(pairs: [string, string][]): Map<string, Set<string>> {
   return m;
 }
 
-export function rawOrderToLedgerOrder(row: RawOrder, supplierIndex: Map<string, Party>): Order {
+export function rawOrderToLedgerOrder(
+  row: RawOrder,
+  supplierIndex: Map<string, Party>,
+  side: Order["side"] = "payable",
+): Order {
   const currency = toCurrency(row.devise);
   const ordered = num(row.montant);
   const party =
@@ -361,7 +365,7 @@ export function rawOrderToLedgerOrder(row: RawOrder, supplierIndex: Map<string, 
 
   return {
     id: row.id,
-    side: "payable",
+    side,
     number: row.reference ?? row.id,
     party,
     createdAt: row.dateCommande ?? row.createdAt ?? "",

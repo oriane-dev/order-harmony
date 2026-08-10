@@ -29,8 +29,9 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { saveOrder } from "@/lib/thalae-mutations";
-import { rawSuppliersQueryOptions } from "@/lib/data";
+import { rawSuppliersQueryOptions, rawCustomersQueryOptions } from "@/lib/data";
 import type { RawOrder } from "@/lib/thalae-types";
+import { ENTITIES, type Entity } from "@/lib/entities";
 
 const MANUAL = "__manual__";
 
@@ -69,13 +70,18 @@ export function OrderForm({
   open,
   onOpenChange,
   order,
+  entity = "supplier",
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   order?: RawOrder;
+  entity?: Entity;
 }) {
+  const cfg = ENTITIES[entity];
   const queryClient = useQueryClient();
-  const { data: suppliers = [] } = useQuery({ ...rawSuppliersQueryOptions(), enabled: open });
+  const partyOptions =
+    entity === "customer" ? rawCustomersQueryOptions() : rawSuppliersQueryOptions();
+  const { data: parties = [] } = useQuery({ ...partyOptions, enabled: open });
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: toFormValues(order),
@@ -90,14 +96,14 @@ export function OrderForm({
 
   const mutation = useMutation({
     mutationFn: async (values: FormValues) => {
-      const supplier = suppliers.find((s) => s.id === values.supplierId);
+      const party = parties.find((s) => s.id === values.supplierId);
       const next: RawOrder = {
         ...order,
         id: order?.id ?? uid(),
         createdAt: order?.createdAt ?? tod(),
         reference: values.reference,
-        fournisseurId: supplier?.id ?? "",
-        fournisseur: supplier?.nom ?? values.fournisseurManual ?? "",
+        fournisseurId: party?.id ?? "",
+        fournisseur: party?.nom ?? values.fournisseurManual ?? "",
         produit: values.produit,
         montant: values.montant,
         devise: values.devise,
@@ -106,10 +112,10 @@ export function OrderForm({
         attachments: order?.attachments ?? [],
         documents: order?.documents ?? [],
       };
-      await saveOrder(next);
+      await saveOrder(next, cfg.ordersTable);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["orders"] });
+      queryClient.invalidateQueries({ queryKey: cfg.ordersKey });
       onOpenChange(false);
     },
   });
@@ -143,7 +149,7 @@ export function OrderForm({
               name="supplierId"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Fournisseur</FormLabel>
+                  <FormLabel>{cfg.party}</FormLabel>
                   <Select value={field.value} onValueChange={field.onChange}>
                     <FormControl>
                       <SelectTrigger>
@@ -152,7 +158,7 @@ export function OrderForm({
                     </FormControl>
                     <SelectContent>
                       <SelectItem value={MANUAL}>— Saisie libre —</SelectItem>
-                      {suppliers.map((s) => (
+                      {parties.map((s) => (
                         <SelectItem key={s.id} value={s.id}>
                           {s.nom}
                         </SelectItem>
@@ -169,9 +175,9 @@ export function OrderForm({
                 name="fournisseurManual"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Nom du fournisseur</FormLabel>
+                    <FormLabel>Nom du {cfg.party.toLowerCase()}</FormLabel>
                     <FormControl>
-                      <Input {...field} placeholder="Nom du fournisseur" />
+                      <Input {...field} placeholder={`Nom du ${cfg.party.toLowerCase()}`} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

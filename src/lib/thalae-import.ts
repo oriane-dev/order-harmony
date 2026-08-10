@@ -12,6 +12,7 @@ import {
   parseSupplierWithClaude,
 } from "@/lib/thalae-extract";
 import { saveOrder, saveSupplier } from "@/lib/thalae-mutations";
+import type { OrdersTable, PartyTable } from "@/lib/thalae-mutations";
 import { getSettings } from "@/lib/settings";
 import type { RawOrder, RawSupplier } from "@/lib/thalae-types";
 
@@ -25,9 +26,12 @@ async function readFileText(file: File): Promise<string> {
   return isPdf ? await extractPdfText(file) : await file.text();
 }
 
-export async function importSupplierFile(file: File): Promise<string> {
+export async function importSupplierFile(
+  file: File,
+  table: PartyTable = "suppliers",
+): Promise<string> {
   if (file.name.toLowerCase().endsWith(".csv")) {
-    throw new Error("L'import CSV est réservé aux commandes, pas aux fournisseurs.");
+    throw new Error("L'import CSV est réservé aux commandes, pas aux fiches.");
   }
   const text = await readFileText(file);
   const apiKey = getSettings().apiKey;
@@ -61,7 +65,7 @@ export async function importSupplierFile(file: File): Promise<string> {
       .filter(Boolean)
       .join(" | "),
   };
-  await saveSupplier(supplier);
+  await saveSupplier(supplier, table);
   return supplier.nom || file.name;
 }
 
@@ -69,7 +73,7 @@ export async function importSupplierFile(file: File): Promise<string> {
 // pipeline builds the legacy documents[]/milestones[] shape, which 0 real orders
 // actually use — everything real lives in docFlow. This builds docFlow.proforma
 // instead, so an imported order is immediately visible/editable like any other.
-export async function importOrderFile(file: File): Promise<string> {
+export async function importOrderFile(file: File, table: OrdersTable = "orders"): Promise<string> {
   if (file.name.toLowerCase().endsWith(".csv")) {
     const text = await file.text();
     const rows = parseCsvOrders(text);
@@ -95,7 +99,7 @@ export async function importOrderFile(file: File): Promise<string> {
         attachments: [],
         documents: [],
       };
-      await saveOrder(order);
+      await saveOrder(order, table);
     }
     return `${rows.length} commande(s) depuis ${file.name}`;
   }
@@ -132,6 +136,6 @@ export async function importOrderFile(file: File): Promise<string> {
       ? { docFlow: { proforma: { pdf: null, montant: parsed.montant, paiements: [] } } }
       : {}),
   };
-  await saveOrder(order);
+  await saveOrder(order, table);
   return order.reference || file.name;
 }

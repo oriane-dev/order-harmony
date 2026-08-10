@@ -12,11 +12,14 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as SuppliersRouteImport } from './routes/suppliers'
 import { Route as ReconciliationRouteImport } from './routes/reconciliation'
 import { Route as EcheancesRouteImport } from './routes/echeances'
+import { Route as CustomersRouteImport } from './routes/customers'
 import { Route as CalendrierRouteImport } from './routes/calendrier'
 import { Route as AlertsRouteImport } from './routes/alerts'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as OrdersIndexRouteImport } from './routes/orders.index'
+import { Route as CustomerOrdersIndexRouteImport } from './routes/customer-orders.index'
 import { Route as OrdersIdRouteImport } from './routes/orders.$id'
+import { Route as CustomerOrdersIdRouteImport } from './routes/customer-orders.$id'
 
 const SuppliersRoute = SuppliersRouteImport.update({
   id: '/suppliers',
@@ -31,6 +34,11 @@ const ReconciliationRoute = ReconciliationRouteImport.update({
 const EcheancesRoute = EcheancesRouteImport.update({
   id: '/echeances',
   path: '/echeances',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CustomersRoute = CustomersRouteImport.update({
+  id: '/customers',
+  path: '/customers',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CalendrierRoute = CalendrierRouteImport.update({
@@ -53,9 +61,19 @@ const OrdersIndexRoute = OrdersIndexRouteImport.update({
   path: '/orders/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CustomerOrdersIndexRoute = CustomerOrdersIndexRouteImport.update({
+  id: '/customer-orders/',
+  path: '/customer-orders/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const OrdersIdRoute = OrdersIdRouteImport.update({
   id: '/orders/$id',
   path: '/orders/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CustomerOrdersIdRoute = CustomerOrdersIdRouteImport.update({
+  id: '/customer-orders/$id',
+  path: '/customer-orders/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
 
@@ -63,20 +81,26 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/alerts': typeof AlertsRoute
   '/calendrier': typeof CalendrierRoute
+  '/customers': typeof CustomersRoute
   '/echeances': typeof EcheancesRoute
   '/reconciliation': typeof ReconciliationRoute
   '/suppliers': typeof SuppliersRoute
+  '/customer-orders/$id': typeof CustomerOrdersIdRoute
   '/orders/$id': typeof OrdersIdRoute
+  '/customer-orders/': typeof CustomerOrdersIndexRoute
   '/orders/': typeof OrdersIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/alerts': typeof AlertsRoute
   '/calendrier': typeof CalendrierRoute
+  '/customers': typeof CustomersRoute
   '/echeances': typeof EcheancesRoute
   '/reconciliation': typeof ReconciliationRoute
   '/suppliers': typeof SuppliersRoute
+  '/customer-orders/$id': typeof CustomerOrdersIdRoute
   '/orders/$id': typeof OrdersIdRoute
+  '/customer-orders': typeof CustomerOrdersIndexRoute
   '/orders': typeof OrdersIndexRoute
 }
 export interface FileRoutesById {
@@ -84,10 +108,13 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/alerts': typeof AlertsRoute
   '/calendrier': typeof CalendrierRoute
+  '/customers': typeof CustomersRoute
   '/echeances': typeof EcheancesRoute
   '/reconciliation': typeof ReconciliationRoute
   '/suppliers': typeof SuppliersRoute
+  '/customer-orders/$id': typeof CustomerOrdersIdRoute
   '/orders/$id': typeof OrdersIdRoute
+  '/customer-orders/': typeof CustomerOrdersIndexRoute
   '/orders/': typeof OrdersIndexRoute
 }
 export interface FileRouteTypes {
@@ -96,30 +123,39 @@ export interface FileRouteTypes {
     | '/'
     | '/alerts'
     | '/calendrier'
+    | '/customers'
     | '/echeances'
     | '/reconciliation'
     | '/suppliers'
+    | '/customer-orders/$id'
     | '/orders/$id'
+    | '/customer-orders/'
     | '/orders/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/alerts'
     | '/calendrier'
+    | '/customers'
     | '/echeances'
     | '/reconciliation'
     | '/suppliers'
+    | '/customer-orders/$id'
     | '/orders/$id'
+    | '/customer-orders'
     | '/orders'
   id:
     | '__root__'
     | '/'
     | '/alerts'
     | '/calendrier'
+    | '/customers'
     | '/echeances'
     | '/reconciliation'
     | '/suppliers'
+    | '/customer-orders/$id'
     | '/orders/$id'
+    | '/customer-orders/'
     | '/orders/'
   fileRoutesById: FileRoutesById
 }
@@ -127,10 +163,13 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AlertsRoute: typeof AlertsRoute
   CalendrierRoute: typeof CalendrierRoute
+  CustomersRoute: typeof CustomersRoute
   EcheancesRoute: typeof EcheancesRoute
   ReconciliationRoute: typeof ReconciliationRoute
   SuppliersRoute: typeof SuppliersRoute
+  CustomerOrdersIdRoute: typeof CustomerOrdersIdRoute
   OrdersIdRoute: typeof OrdersIdRoute
+  CustomerOrdersIndexRoute: typeof CustomerOrdersIndexRoute
   OrdersIndexRoute: typeof OrdersIndexRoute
 }
 
@@ -155,6 +194,13 @@ declare module '@tanstack/react-router' {
       path: '/echeances'
       fullPath: '/echeances'
       preLoaderRoute: typeof EcheancesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/customers': {
+      id: '/customers'
+      path: '/customers'
+      fullPath: '/customers'
+      preLoaderRoute: typeof CustomersRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/calendrier': {
@@ -185,11 +231,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OrdersIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/customer-orders/': {
+      id: '/customer-orders/'
+      path: '/customer-orders'
+      fullPath: '/customer-orders/'
+      preLoaderRoute: typeof CustomerOrdersIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/orders/$id': {
       id: '/orders/$id'
       path: '/orders/$id'
       fullPath: '/orders/$id'
       preLoaderRoute: typeof OrdersIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/customer-orders/$id': {
+      id: '/customer-orders/$id'
+      path: '/customer-orders/$id'
+      fullPath: '/customer-orders/$id'
+      preLoaderRoute: typeof CustomerOrdersIdRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -199,10 +259,13 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AlertsRoute: AlertsRoute,
   CalendrierRoute: CalendrierRoute,
+  CustomersRoute: CustomersRoute,
   EcheancesRoute: EcheancesRoute,
   ReconciliationRoute: ReconciliationRoute,
   SuppliersRoute: SuppliersRoute,
+  CustomerOrdersIdRoute: CustomerOrdersIdRoute,
   OrdersIdRoute: OrdersIdRoute,
+  CustomerOrdersIndexRoute: CustomerOrdersIndexRoute,
   OrdersIndexRoute: OrdersIndexRoute,
 }
 export const routeTree = rootRouteImport
