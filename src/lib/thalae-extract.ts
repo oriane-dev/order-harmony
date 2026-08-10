@@ -287,14 +287,20 @@ export function parseCsvOrders(txt: string): ParsedCsvOrder[] {
     firstRow.forEach((col, i) => {
       const n = col
         .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "") // strip accents: "Référence" → "reference"
         .replace(/[^a-z0-9\s()€]/g, "")
         .trim();
-      if (/^docket$/.test(n)) IDX.reference = i;
-      else if (/manufacturer|fournisseur|supplier|vendor|maker/.test(n)) IDX.fournisseur = i;
+      if (/^docket$|^reference$|^ref$|^commande$|^order$/.test(n)) IDX.reference = i;
+      // counterparty — supplier OR customer column names
+      else if (
+        /manufacturer|fournisseur|supplier|vendor|maker|client|customer|acheteur|buyer/.test(n)
+      )
+        IDX.fournisseur = i;
       else if (/docket\s*ref|docket\s*reference|produit|product|description|article|style/.test(n))
         IDX.produit = i;
       else if (/docket\s*date|date\s*commande|order\s*date|po\s*date/.test(n)) IDX.dateCommande = i;
-      else if (/delivery\s*to|date\s*livraison|ship\s*date|due\s*date/.test(n))
+      else if (/delivery\s*to|date\s*livraison|ship\s*date|due\s*date|livraison/.test(n))
         IDX.dateLivraison = i;
       else if (/total\s*cost\s*\(?€\)?|montant|total\s*eur/.test(n)) IDX.montant = i;
       else if (/^total\s*cost$|^total\s*value$|^grand\s*total$/.test(n) && IDX.montant === -1)
