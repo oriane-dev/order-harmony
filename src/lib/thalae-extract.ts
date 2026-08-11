@@ -300,12 +300,15 @@ export function parseCsvOrders(txt: string): ParsedCsvOrder[] {
       else if (/docket\s*ref|docket\s*reference|produit|product|description|article|style/.test(n))
         IDX.produit = i;
       else if (/docket\s*date|date\s*commande|order\s*date|po\s*date/.test(n)) IDX.dateCommande = i;
-      else if (/delivery\s*to|date\s*livraison|ship\s*date|due\s*date|livraison/.test(n))
+      else if (/delivery\s*to|date\s*livraison|ship\s*date|due\s*date|livraison|^date$/.test(n))
         IDX.dateLivraison = i;
       else if (/total\s*cost\s*\(?€\)?|montant|total\s*eur/.test(n)) IDX.montant = i;
-      else if (/^total\s*cost$|^total\s*value$|^grand\s*total$/.test(n) && IDX.montant === -1)
+      else if (
+        /^total\s*cost$|^total\s*value$|^grand\s*total$|^total$|^amount$|^prix$|^price$/.test(n) &&
+        IDX.montant === -1
+      )
         IDX.montant = i;
-      else if (/docket\s*qty|quantit/.test(n)) IDX.quantite = i;
+      else if (/docket\s*qty|quantit|^qty$|quantity/.test(n)) IDX.quantite = i;
       else if (/^pending$/.test(n)) IDX.pending = i;
       else if (/in\s*transit/.test(n)) IDX.inTransit = i;
       else if (/^received$/.test(n)) IDX.received = i;
