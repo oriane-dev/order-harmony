@@ -299,8 +299,9 @@ export function parseCsvOrders(txt: string): ParsedCsvOrder[] {
         IDX.fournisseur = i;
       else if (/docket\s*ref|docket\s*reference|produit|product|description|article|style/.test(n))
         IDX.produit = i;
-      else if (/docket\s*date|date\s*commande|order\s*date|po\s*date/.test(n)) IDX.dateCommande = i;
-      else if (/delivery\s*to|date\s*livraison|ship\s*date|due\s*date|livraison|^date$/.test(n))
+      else if (/docket\s*date|date\s*commande|order\s*date|po\s*date|^date$/.test(n))
+        IDX.dateCommande = i;
+      else if (/delivery\s*to|date\s*livraison|ship\s*date|due\s*date|^due$|livraison/.test(n))
         IDX.dateLivraison = i;
       else if (/total\s*cost\s*\(?€\)?|montant|total\s*eur/.test(n)) IDX.montant = i;
       else if (
