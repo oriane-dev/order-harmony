@@ -291,32 +291,40 @@ export function parseCsvOrders(txt: string): ParsedCsvOrder[] {
         .replace(/[\u0300-\u036f]/g, "") // strip accents: "Référence" → "reference"
         .replace(/[^a-z0-9\s()€]/g, "")
         .trim();
-      if (/^docket$|^reference$|^ref$|^commande$|^order$/.test(n)) IDX.reference = i;
-      // counterparty — supplier OR customer column names
+      // Partial (substring) matching throughout, so real-world headers like
+      // "Order Number", "Total Amount", "Total (€)" work — not just the bare word.
+      // Order matters: more specific columns are claimed before broader ones.
+      //
+      // Product / style ref first, so "Docket Ref" isn't mistaken for the order number.
+      if (/docket\s*ref|docket\s*reference|produit|product|description|article|style/.test(n))
+        IDX.produit = i;
+      // Delivery/due date, then order date — both before the order-number match, so
+      // "Order Date" is read as a date rather than the reference.
+      else if (/delivery|livraison|ship\s*date|due\s*date|\bdue\b|expected|\beta\b/.test(n))
+        IDX.dateLivraison = i;
+      else if (/order\s*date|date\s*commande|po\s*date|docket\s*date|created|\bdate\b/.test(n))
+        IDX.dateCommande = i;
+      // Quantity before amount, so "Total Quantity" isn't grabbed as the amount.
+      else if (/docket\s*qty|quantit|quantity|\bqty\b|pieces|\bpcs\b|\bunits?\b/.test(n))
+        IDX.quantite = i;
+      // Amount before reference, so "Order Value"/"Order Total" go to amount, not the number.
+      else if (/total|montant|amount|\bvalue\b|\bcost\b|prix|price|€|\beur\b/.test(n))
+        IDX.montant = i;
+      // Order / reference number — partial, so "Order Number", "Order #", "N° commande" work.
+      else if (/docket|reference|\bref\b|commande|\border\b|\bpo\b|purchase\s*order/.test(n))
+        IDX.reference = i;
+      // Counterparty — supplier OR customer column names
       else if (
         /manufacturer|fournisseur|supplier|vendor|maker|client|customer|acheteur|buyer/.test(n)
       )
         IDX.fournisseur = i;
-      else if (/docket\s*ref|docket\s*reference|produit|product|description|article|style/.test(n))
-        IDX.produit = i;
-      else if (/docket\s*date|date\s*commande|order\s*date|po\s*date|^date$/.test(n))
-        IDX.dateCommande = i;
-      else if (/delivery\s*to|date\s*livraison|ship\s*date|due\s*date|^due$|livraison/.test(n))
-        IDX.dateLivraison = i;
-      else if (/total\s*cost\s*\(?€\)?|montant|total\s*eur/.test(n)) IDX.montant = i;
-      else if (
-        /^total\s*cost$|^total\s*value$|^grand\s*total$|^total$|^amount$|^prix$|^price$/.test(n) &&
-        IDX.montant === -1
-      )
-        IDX.montant = i;
-      else if (/docket\s*qty|quantit|^qty$|quantity/.test(n)) IDX.quantite = i;
       else if (/^pending$/.test(n)) IDX.pending = i;
       else if (/in\s*transit/.test(n)) IDX.inTransit = i;
       else if (/^received$/.test(n)) IDX.received = i;
       else if (/^closed$/.test(n)) IDX.closed = i;
       else if (/devise|currency|ccy/.test(n)) IDX.devise = i;
       else if (/incoterm/.test(n)) IDX.incoterms = i;
-      else if (/notes|note|remarks|season|collection/.test(n)) IDX.notes = i;
+      else if (/notes|note|remarks|season|saison|collection/.test(n)) IDX.notes = i;
     });
   } else {
     Object.assign(IDX, {
