@@ -173,10 +173,11 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
             }
             if (Math.abs(outstanding) <= 0.01) continue;
             const dueKey = keyFromIso(f.dueDate);
-            if (dueKey && dueKey > currentKey) {
+            if (dueKey && dueKey >= currentKey) {
+              // due this month or later → shown as "attendu" in its due month
               bump(expected, season, dueKey, outstanding);
             } else {
-              // échéance atteinte (ce mois-ci ou avant) ou absente → en retard
+              // échéance d'un mois déjà passé (ou absente) → en retard
               overdueBySeason.set(season, (overdueBySeason.get(season) ?? 0) + outstanding);
               overdueItems.push({
                 season,
@@ -217,22 +218,32 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
       return seasonSortKey(a) - seasonSortKey(b);
     });
 
+    // Main value shown in a cell: real payments up to the current month, expected after.
     const cell = (season: string, key: string): number =>
       key <= currentKey
         ? (actual.get(season)?.get(key) ?? 0)
         : (expected.get(season)?.get(key) ?? 0);
+    // Expected (attendu) receivable for a given month — used to also surface, on the
+    // CURRENT month, what's still due this month on top of what's already been received.
+    const expectedAt = (season: string, key: string): number => expected.get(season)?.get(key) ?? 0;
 
     const overdueOf = (season: string): number => overdueBySeason.get(season) ?? 0;
     const hasOverdue = [...overdueBySeason.values()].some((v) => Math.abs(v) > 0.01);
 
-    return { months, seasons, cell, overdueOf, hasOverdue, overdueItems };
+    return { months, seasons, cell, expectedAt, overdueOf, hasOverdue, overdueItems };
   }, [orders, rawOrders, currentKey, nextKey, isSupplier]);
 
-  const { months, seasons, cell, overdueOf, hasOverdue, overdueItems } = model;
+  const { months, seasons, cell, expectedAt, overdueOf, hasOverdue, overdueItems } = model;
 
+  // The current month contributes both what's been received (cell) and what's still
+  // expected this month (expectedAt) — count both so totals stay whole.
+  const monthValue = (season: string, key: string) =>
+    cell(season, key) + (key === currentKey ? expectedAt(season, key) : 0);
   const rowTotal = (season: string) =>
-    overdueOf(season) + months.reduce((a, k) => a + cell(season, k), 0);
-  const colTotal = (key: string) => seasons.reduce((a, s) => a + cell(s, key), 0);
+    overdueOf(season) + months.reduce((a, k) => a + monthValue(season, k), 0);
+  const colTotal = (key: string) => seasons.reduce((a, s) => a + monthValue(s, key), 0);
+  const colActual = (key: string) => seasons.reduce((a, s) => a + cell(s, key), 0);
+  const colExpectedNow = seasons.reduce((a, s) => a + expectedAt(s, currentKey), 0);
   const overdueTotal = seasons.reduce((a, s) => a + overdueOf(s), 0);
   const grandTotal = seasons.reduce((a, s) => a + rowTotal(s), 0);
 
@@ -296,8 +307,9 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
           en cours
         </span>
         <span className="inline-flex items-center gap-1.5">
-          <span className="size-2.5 rounded-sm bg-accent/40" /> Attendu ({expectedNote}), après le
+          <span className="size-2.5 rounded-sm bg-accent/40" /> Attendu ({expectedNote}), dès le
           mois en cours
+          {!isSupplier && " (le mois en cours affiche les deux : encaissé + « +attendu »)"}
         </span>
         {hasOverdue && (
           <span className="inline-flex items-center gap-1.5">
@@ -382,6 +394,8 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
                   const v = cell(season, key);
                   const isCurrent = key === currentKey;
                   const isFuture = key > currentKey;
+                  // current month also surfaces what's still expected this month (light blue)
+                  const exp = isCurrent ? expectedAt(season, key) : 0;
                   return (
                     <td
                       key={key}
@@ -391,7 +405,26 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
                         isFuture ? "text-accent/90 italic" : "text-foreground",
                       )}
                     >
-                      {v > 0.01 ? shortMoney(v) : <span className="text-muted-foreground">—</span>}
+                      {isCurrent ? (
+                        <div className="flex flex-col items-end leading-tight">
+                          <span>
+                            {v > 0.01 ? (
+                              shortMoney(v)
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </span>
+                          {exp > 0.01 && (
+                            <span className="text-accent/90 italic text-xs">
+                              +{shortMoney(exp)}
+                            </span>
+                          )}
+                        </div>
+                      ) : v > 0.01 ? (
+                        shortMoney(v)
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
                     </td>
                   );
                 })}
@@ -445,7 +478,22 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
                       key > currentKey && "text-accent/90",
                     )}
                   >
-                    {colTotal(key) > 0.01 ? (
+                    {key === currentKey ? (
+                      <div className="flex flex-col items-end leading-tight">
+                        <span>
+                          {colActual(key) > 0.01 ? (
+                            shortMoney(colActual(key))
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </span>
+                        {colExpectedNow > 0.01 && (
+                          <span className="text-accent/90 italic text-xs">
+                            +{shortMoney(colExpectedNow)}
+                          </span>
+                        )}
+                      </div>
+                    ) : colTotal(key) > 0.01 ? (
                       shortMoney(colTotal(key))
                     ) : (
                       <span className="text-muted-foreground">—</span>
