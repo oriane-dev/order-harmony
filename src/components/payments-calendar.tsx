@@ -90,6 +90,9 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
 
     // EXPECTED: outstanding balance scheduled in a future month.
     const expected = new Map<string, Map<string, number>>();
+    // OVERDUE (customer only): outstanding whose due date is already reached (this month
+    // or earlier) and still not collected — shown in a distinct "En retard" column.
+    const overdueBySeason = new Map<string, number>();
     if (isSupplier) {
       // Supplier: whole-order outstanding (facturé − payé) at the expected-delivery
       // month if still ahead, else next month.
@@ -104,7 +107,7 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
       }
     } else {
       // Customer: each unpaid invoice's own outstanding, at its due date (échéance).
-      // Already-overdue invoices are lumped into next month ("still to collect").
+      // Invoices whose échéance is already reached go to the "En retard" bucket.
       for (const ro of rawOrders) {
         const season = seasonById.get(ro.id) ?? "";
         const df = ro.docFlow;
@@ -142,8 +145,12 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
             }
             if (Math.abs(outstanding) <= 0.01) continue;
             const dueKey = keyFromIso(f.dueDate);
-            const key = dueKey && dueKey > currentKey ? dueKey : nextKey;
-            bump(expected, season, key, outstanding);
+            if (dueKey && dueKey > currentKey) {
+              bump(expected, season, dueKey, outstanding);
+            } else {
+              // échéance atteinte (ce mois-ci ou avant) ou absente → en retard
+              overdueBySeason.set(season, (overdueBySeason.get(season) ?? 0) + outstanding);
+            }
           }
         }
       }
@@ -166,6 +173,7 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
     const seasonSet = new Set<string>();
     actual.forEach((_, s) => seasonSet.add(s));
     expected.forEach((_, s) => seasonSet.add(s));
+    overdueBySeason.forEach((_, s) => seasonSet.add(s));
     const seasons = [...seasonSet].sort((a, b) => {
       if (a === "") return 1;
       if (b === "") return -1;
@@ -177,13 +185,18 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
         ? (actual.get(season)?.get(key) ?? 0)
         : (expected.get(season)?.get(key) ?? 0);
 
-    return { months, seasons, cell };
+    const overdueOf = (season: string): number => overdueBySeason.get(season) ?? 0;
+    const hasOverdue = [...overdueBySeason.values()].some((v) => Math.abs(v) > 0.01);
+
+    return { months, seasons, cell, overdueOf, hasOverdue };
   }, [orders, rawOrders, currentKey, nextKey, isSupplier]);
 
-  const { months, seasons, cell } = model;
+  const { months, seasons, cell, overdueOf, hasOverdue } = model;
 
-  const rowTotal = (season: string) => months.reduce((a, k) => a + cell(season, k), 0);
+  const rowTotal = (season: string) =>
+    overdueOf(season) + months.reduce((a, k) => a + cell(season, k), 0);
   const colTotal = (key: string) => seasons.reduce((a, s) => a + cell(s, key), 0);
+  const overdueTotal = seasons.reduce((a, s) => a + overdueOf(s), 0);
   const grandTotal = seasons.reduce((a, s) => a + rowTotal(s), 0);
 
   // Synced scrollbar shown ABOVE the table (mirrors the table's own horizontal scroll).
@@ -230,6 +243,12 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
           <span className="size-2.5 rounded-sm bg-accent/40" /> Attendu ({expectedNote}), après le
           mois en cours
         </span>
+        {hasOverdue && (
+          <span className="inline-flex items-center gap-1.5">
+            <span className="size-2.5 rounded-sm bg-destructive/30" /> En retard (échéance dépassée,
+            non encaissé)
+          </span>
+        )}
       </div>
 
       {/* top scrollbar */}
@@ -253,6 +272,11 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
               <th className="sticky left-0 z-10 bg-card text-left font-medium px-4 py-3 whitespace-nowrap">
                 Saison
               </th>
+              {hasOverdue && (
+                <th className="text-right font-semibold px-3 py-3 whitespace-nowrap bg-destructive/15 text-destructive border-r border-destructive/25">
+                  En retard
+                </th>
+              )}
               {months.map((key) => {
                 const { m, y } = monthLabelShort(key);
                 const isCurrent = key === currentKey;
@@ -281,6 +305,15 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
                 <td className="sticky left-0 z-10 bg-card px-4 py-3 font-medium whitespace-nowrap">
                   {seasonLabel(season)}
                 </td>
+                {hasOverdue && (
+                  <td className="px-3 py-3 text-right num tabular-nums bg-destructive/10 text-destructive font-medium border-r border-destructive/25">
+                    {overdueOf(season) > 0.01 ? (
+                      shortMoney(overdueOf(season))
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </td>
+                )}
                 {months.map((key) => {
                   const v = cell(season, key);
                   const isCurrent = key === currentKey;
@@ -306,7 +339,7 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
             {seasons.length === 0 && (
               <tr>
                 <td
-                  colSpan={months.length + 2}
+                  colSpan={months.length + 2 + (hasOverdue ? 1 : 0)}
                   className="px-5 py-8 text-center text-sm text-muted-foreground"
                 >
                   {isSupplier
@@ -322,6 +355,15 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
                 <td className="sticky left-0 z-10 bg-card px-4 py-3 whitespace-nowrap uppercase text-[10px] tracking-widest text-muted-foreground">
                   Total
                 </td>
+                {hasOverdue && (
+                  <td className="px-3 py-3 text-right font-serif text-base num bg-destructive/10 text-destructive border-r border-destructive/25">
+                    {overdueTotal > 0.01 ? (
+                      shortMoney(overdueTotal)
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </td>
+                )}
                 {months.map((key) => (
                   <td
                     key={key}
@@ -352,10 +394,16 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
         {isSupplier ? "paiements" : "encaissements"} réellement enregistrés (d'après leur date).
         Après le mois en cours, elle affiche le solde restant à {isSupplier ? "payer" : "encaisser"}{" "}
         {isSupplier
-          ? "(facturé non payé), planifié sur le mois de livraison prévu"
-          : "(factures non réglées), planifié sur le mois de leur échéance (due date)"}
-        , ou le mois prochain si{" "}
-        {isSupplier ? "la livraison est déjà passée" : "l'échéance est déjà passée"}.
+          ? "(facturé non payé), planifié sur le mois de livraison prévu, ou le mois prochain si la livraison est déjà passée."
+          : "(factures non réglées), planifié sur le mois de leur échéance (due date)."}
+        {!isSupplier && hasOverdue && (
+          <>
+            {" "}
+            La colonne <span className="text-destructive font-medium">En retard</span> regroupe les
+            factures dont l'échéance est déjà atteinte (ce mois-ci ou avant) et non encore
+            encaissées.
+          </>
+        )}
       </p>
     </div>
   );
