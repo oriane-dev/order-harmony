@@ -8,6 +8,7 @@
 // their date); after the current month, cells show what's still expected.
 
 import { useSuspenseQuery } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ordersQueryOptions,
@@ -15,8 +16,9 @@ import {
   customerOrdersQueryOptions,
   rawCustomerOrdersQueryOptions,
 } from "@/lib/data";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { seasonOf, seasonSortKey } from "@/lib/season";
-import { shortMoney } from "@/lib/format";
+import { shortMoney, fmtDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { Entity } from "@/lib/entities";
 
@@ -41,6 +43,16 @@ function monthLabelShort(key: string): { m: string; y: string } {
 function monthLabelFull(key: string): string {
   const [y, m] = key.split("-").map(Number);
   return new Date(y, m - 1, 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+}
+
+interface OverdueItem {
+  season: string;
+  orderId: string;
+  ref: string;
+  client: string;
+  docNo?: string;
+  amount: number;
+  dueDate?: string;
 }
 
 function bump(map: Map<string, Map<string, number>>, season: string, key: string, amt: number) {
@@ -93,6 +105,8 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
     // OVERDUE (customer only): outstanding whose due date is already reached (this month
     // or earlier) and still not collected — shown in a distinct "En retard" column.
     const overdueBySeason = new Map<string, number>();
+    // Per-invoice detail behind each overdue amount (for the drill-down dialog).
+    const overdueItems: OverdueItem[] = [];
     if (isSupplier) {
       // Supplier: whole-order outstanding (facturé − payé) at the expected-delivery
       // month if still ahead, else next month.
@@ -150,6 +164,15 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
             } else {
               // échéance atteinte (ce mois-ci ou avant) ou absente → en retard
               overdueBySeason.set(season, (overdueBySeason.get(season) ?? 0) + outstanding);
+              overdueItems.push({
+                season,
+                orderId: ro.id,
+                ref: ro.reference ?? ro.id,
+                client: ro.fournisseur ?? "",
+                docNo: f.docNo,
+                amount: outstanding,
+                dueDate: f.dueDate,
+              });
             }
           }
         }
@@ -188,16 +211,35 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
     const overdueOf = (season: string): number => overdueBySeason.get(season) ?? 0;
     const hasOverdue = [...overdueBySeason.values()].some((v) => Math.abs(v) > 0.01);
 
-    return { months, seasons, cell, overdueOf, hasOverdue };
+    return { months, seasons, cell, overdueOf, hasOverdue, overdueItems };
   }, [orders, rawOrders, currentKey, nextKey, isSupplier]);
 
-  const { months, seasons, cell, overdueOf, hasOverdue } = model;
+  const { months, seasons, cell, overdueOf, hasOverdue, overdueItems } = model;
 
   const rowTotal = (season: string) =>
     overdueOf(season) + months.reduce((a, k) => a + cell(season, k), 0);
   const colTotal = (key: string) => seasons.reduce((a, s) => a + cell(s, key), 0);
   const overdueTotal = seasons.reduce((a, s) => a + overdueOf(s), 0);
   const grandTotal = seasons.reduce((a, s) => a + rowTotal(s), 0);
+
+  // Drill-down on the "En retard" column: which orders, how overdue, when they were due.
+  const navigate = useNavigate();
+  const [overdueScope, setOverdueScope] = useState<"all" | string | null>(null);
+  const openOverdue = (scope: "all" | string) => {
+    if (hasOverdue) setOverdueScope(scope);
+  };
+  const dialogItems = useMemo(() => {
+    if (overdueScope == null) return [];
+    const list =
+      overdueScope === "all"
+        ? overdueItems
+        : overdueItems.filter((it) => it.season === overdueScope);
+    const rank = (it: OverdueItem) => (it.dueDate ? new Date(it.dueDate).getTime() : Infinity);
+    return [...list].sort((a, b) => rank(a) - rank(b));
+  }, [overdueScope, overdueItems]);
+  const todayMs = now.getTime();
+  const daysLate = (iso?: string) =>
+    iso ? Math.floor((todayMs - new Date(iso).getTime()) / 86_400_000) : null;
 
   // Synced scrollbar shown ABOVE the table (mirrors the table's own horizontal scroll).
   const topRef = useRef<HTMLDivElement>(null);
@@ -306,7 +348,15 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
                   {seasonLabel(season)}
                 </td>
                 {hasOverdue && (
-                  <td className="px-3 py-3 text-right num tabular-nums bg-destructive/10 text-destructive font-medium border-r border-destructive/25">
+                  <td
+                    onClick={() => overdueOf(season) > 0.01 && openOverdue(season)}
+                    className={cn(
+                      "px-3 py-3 text-right num tabular-nums bg-destructive/10 text-destructive font-medium border-r border-destructive/25",
+                      overdueOf(season) > 0.01 &&
+                        "cursor-pointer hover:bg-destructive/20 underline decoration-dotted underline-offset-2",
+                    )}
+                    title={overdueOf(season) > 0.01 ? "Voir le détail des retards" : undefined}
+                  >
                     {overdueOf(season) > 0.01 ? (
                       shortMoney(overdueOf(season))
                     ) : (
@@ -356,7 +406,15 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
                   Total
                 </td>
                 {hasOverdue && (
-                  <td className="px-3 py-3 text-right font-serif text-base num bg-destructive/10 text-destructive border-r border-destructive/25">
+                  <td
+                    onClick={() => overdueTotal > 0.01 && openOverdue("all")}
+                    className={cn(
+                      "px-3 py-3 text-right font-serif text-base num bg-destructive/10 text-destructive border-r border-destructive/25",
+                      overdueTotal > 0.01 &&
+                        "cursor-pointer hover:bg-destructive/20 underline decoration-dotted underline-offset-2",
+                    )}
+                    title={overdueTotal > 0.01 ? "Voir tout le détail des retards" : undefined}
+                  >
                     {overdueTotal > 0.01 ? (
                       shortMoney(overdueTotal)
                     ) : (
@@ -401,10 +459,79 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
             {" "}
             La colonne <span className="text-destructive font-medium">En retard</span> regroupe les
             factures dont l'échéance est déjà atteinte (ce mois-ci ou avant) et non encore
-            encaissées.
+            encaissées. Clique un montant rouge pour voir le détail des commandes concernées.
           </>
         )}
       </p>
+
+      <Dialog open={overdueScope != null} onOpenChange={(v) => !v && setOverdueScope(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>
+              Factures en retard
+              {overdueScope && overdueScope !== "all" ? ` · ${overdueScope}` : ""}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="text-sm text-muted-foreground -mt-1">
+            {dialogItems.length} facture{dialogItems.length > 1 ? "s" : ""} · total{" "}
+            <span className="text-destructive font-medium num">
+              {shortMoney(dialogItems.reduce((a, it) => a + it.amount, 0))}
+            </span>
+          </div>
+          <div className="max-h-[60vh] overflow-y-auto -mx-2">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-[10px] uppercase tracking-widest text-muted-foreground border-b border-border">
+                  <th className="text-left font-medium px-2 py-2">Commande · Client</th>
+                  <th className="text-left font-medium px-2 py-2 whitespace-nowrap">Échéance</th>
+                  <th className="text-right font-medium px-2 py-2 whitespace-nowrap">Retard</th>
+                  <th className="text-right font-medium px-2 py-2 whitespace-nowrap">Montant dû</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {dialogItems.map((it, i) => {
+                  const late = daysLate(it.dueDate);
+                  return (
+                    <tr
+                      key={`${it.orderId}-${it.docNo ?? i}`}
+                      onClick={() => {
+                        setOverdueScope(null);
+                        navigate({ to: "/customer-orders/$id", params: { id: it.orderId } });
+                      }}
+                      className="cursor-pointer hover:bg-surface-2 transition-colors"
+                    >
+                      <td className="px-2 py-2.5">
+                        <div className="font-medium">{it.ref}</div>
+                        <div className="text-xs text-muted-foreground truncate max-w-[240px]">
+                          {it.client}
+                          {it.docNo ? ` · ${it.docNo}` : ""}
+                        </div>
+                      </td>
+                      <td className="px-2 py-2.5 whitespace-nowrap num">
+                        {it.dueDate ? fmtDate(it.dueDate) : "—"}
+                      </td>
+                      <td className="px-2 py-2.5 text-right whitespace-nowrap">
+                        {late != null && late > 0 ? (
+                          <span className="text-destructive">
+                            {late} jour{late > 1 ? "s" : ""}
+                          </span>
+                        ) : late != null && late <= 0 ? (
+                          <span className="text-muted-foreground">échéance ce mois</span>
+                        ) : (
+                          <span className="text-muted-foreground">échéance inconnue</span>
+                        )}
+                      </td>
+                      <td className="px-2 py-2.5 text-right font-serif text-base num text-destructive">
+                        {shortMoney(it.amount)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
