@@ -5,6 +5,7 @@ import { AppShell } from "@/components/app-shell";
 import { StatusChip } from "@/components/status-chip";
 import { OrderForm } from "@/components/order-form";
 import { ImportPanel } from "@/components/import-panel";
+import { CustomerImportDialog } from "@/components/customer-import-dialog";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -364,18 +365,22 @@ export function OrdersListPage({ entity }: { entity: Entity }) {
 
       <OrderForm open={formOpen} onOpenChange={setFormOpen} entity={entity} />
 
-      <Dialog open={importOpen} onOpenChange={setImportOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Importer des commandes</DialogTitle>
-          </DialogHeader>
-          <ImportPanel
-            accept=".pdf,.txt,.csv"
-            helpText="Bons de commande PDF/texte (extraction IA si une clé API est renseignée dans Paramètres) ou un CSV de plusieurs commandes."
-            onProcessFile={(f) => importOrderFile(f, cfg.ordersTable)}
-          />
-        </DialogContent>
-      </Dialog>
+      {isSupplier ? (
+        <Dialog open={importOpen} onOpenChange={setImportOpen}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Importer des commandes</DialogTitle>
+            </DialogHeader>
+            <ImportPanel
+              accept=".pdf,.txt,.csv"
+              helpText="Bons de commande PDF/texte (extraction IA si une clé API est renseignée dans Paramètres) ou un CSV de plusieurs commandes."
+              onProcessFile={(f) => importOrderFile(f, cfg.ordersTable)}
+            />
+          </DialogContent>
+        </Dialog>
+      ) : (
+        <CustomerImportDialog open={importOpen} onOpenChange={setImportOpen} entity={entity} />
+      )}
     </AppShell>
   );
 }

@@ -27,6 +27,10 @@ export interface RawFacture {
   montant?: number;
   montantBrut?: number;
   devise?: string;
+  // business metadata from the document-level customer import (harmless to suppliers)
+  docNo?: string; // e.g. "IN-500632" — invoice number, used for dedup / PDF matching
+  docDate?: string; // ISO
+  dueDate?: string; // ISO — invoice payment due date
 }
 
 export interface RawPackingList {
@@ -38,6 +42,10 @@ export interface RawPackingList {
   facturePdf?: RawPdf | null;
   factureAmount?: number;
   factureMontantBrut?: number;
+  // business metadata from the document-level customer import
+  docNo?: string; // e.g. "DN-00293" — delivery note number
+  docDate?: string; // ISO
+  qty?: number;
 }
 
 export interface RawDocFlowSlot {
@@ -45,6 +53,10 @@ export interface RawDocFlowSlot {
   montant?: number;
   devise?: string;
   paiements?: RawPayment[];
+  // business metadata from the document-level customer import
+  docNo?: string; // e.g. "PF-00015" — pro forma number
+  docDate?: string; // ISO
+  dueDate?: string; // ISO
 }
 
 export interface RawDocFlow {
