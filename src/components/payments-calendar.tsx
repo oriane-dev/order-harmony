@@ -130,11 +130,17 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
           let paidLeft = slot.paiements.reduce((a, p) => a + (p.montant ?? 0), 0);
           for (const f of slot.factures) {
             const amount = f.montant ?? f.montantBrut ?? 0;
-            if (amount <= 0) continue; // skip credit-like negatives
-            const alloc = Math.min(paidLeft, amount);
-            paidLeft -= alloc;
-            const outstanding = amount - alloc;
-            if (outstanding <= 0.01) continue;
+            // Positive invoices are reduced by payments already received; a negative
+            // invoice (credit / adjustment) lowers the receivable in its own due month.
+            let outstanding: number;
+            if (amount >= 0) {
+              const alloc = Math.min(paidLeft, amount);
+              paidLeft -= alloc;
+              outstanding = amount - alloc;
+            } else {
+              outstanding = amount;
+            }
+            if (Math.abs(outstanding) <= 0.01) continue;
             const dueKey = keyFromIso(f.dueDate);
             const key = dueKey && dueKey > currentKey ? dueKey : nextKey;
             bump(expected, season, key, outstanding);
