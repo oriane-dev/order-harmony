@@ -261,6 +261,7 @@ export function OrdersListPage({ entity }: { entity: Entity }) {
                   Référence · {cfg.party}
                 </th>
                 <th className="text-left font-medium px-3 py-3 whitespace-nowrap">Produit</th>
+                <th className="text-left font-medium px-3 py-3 whitespace-nowrap">Saison</th>
                 <th className="text-left font-medium px-3 py-3 whitespace-nowrap">Statut</th>
                 <th className="text-left font-medium px-3 py-3 whitespace-nowrap w-36">
                   Avancement
@@ -300,6 +301,9 @@ export function OrdersListPage({ entity }: { entity: Entity }) {
                     </td>
                     <td className="px-3 py-3.5 text-sm text-muted-foreground truncate max-w-[220px]">
                       {produitById.get(o.id) || "—"}
+                    </td>
+                    <td className="px-3 py-3.5 text-sm num whitespace-nowrap">
+                      {seasonById.get(o.id) || <span className="text-muted-foreground">—</span>}
                     </td>
                     <td className="px-3 py-3.5">
                       <StatusChip status={o.status} />
@@ -353,7 +357,7 @@ export function OrdersListPage({ entity }: { entity: Entity }) {
               })}
               {list.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="px-5 py-8 text-center text-sm text-muted-foreground">
+                  <td colSpan={11} className="px-5 py-8 text-center text-sm text-muted-foreground">
                     Aucune commande.
                   </td>
                 </tr>
