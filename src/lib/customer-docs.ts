@@ -131,12 +131,14 @@ export function parseDocsCsv(text: string): DocRow[] {
 
 /* ── PDF filename parsing ─────────────────────────────────────────────── */
 
-// "IN-500632-247_TWENTYFOURSEVEN SRL.pdf" → { docNo: "IN-500632", customer: "247…" }
+// "IN-500632_247_TWENTYFOURSEVEN_SRL.PDF" or "IN-500632-Client.pdf" →
+// { docNo: "IN-500632", customer: "247…" }. Separator between the document number and
+// the customer name may be "_", "-" or a space; the extension is case-insensitive.
 export function parsePdfFilename(
   name: string,
 ): { type: string; docNo: string; customer: string } | null {
   const base = name.replace(/\.pdf$/i, "").trim();
-  const m = base.match(/^([A-Za-z]{2})[-\s]*(\d+)\s*-\s*(.*)$/);
+  const m = base.match(/^([A-Za-z]{2})[-_\s]*(\d+)[-_\s]+(.*)$/);
   if (!m) return null;
   const type = m[1].toUpperCase();
   return { type, docNo: `${type}-${m[2]}`, customer: (m[3] || "").trim() };
