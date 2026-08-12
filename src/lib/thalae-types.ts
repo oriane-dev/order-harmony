@@ -21,6 +21,19 @@ export interface RawPayment {
   pdf?: RawPdf | null;
 }
 
+// A credit note (avoir) attached to an invoice — reduces the invoiced amount.
+// `montant` is stored as a positive credit value; it is SUBTRACTED from the invoice
+// it belongs to (so the net facturé comes out lower).
+export interface RawCreditNote {
+  id: string;
+  docNo?: string; // e.g. "CN-00536"
+  montant?: number; // positive credit amount, subtracted from the invoice
+  devise?: string;
+  pdf?: RawPdf | null;
+  docDate?: string; // ISO
+  date?: string; // ISO
+}
+
 export interface RawFacture {
   id: string;
   pdf?: RawPdf | null;
@@ -31,6 +44,7 @@ export interface RawFacture {
   docNo?: string; // e.g. "IN-500632" — invoice number, used for dedup / PDF matching
   docDate?: string; // ISO
   dueDate?: string; // ISO — invoice payment due date
+  creditNotes?: RawCreditNote[]; // avoirs reducing this invoice
 }
 
 export interface RawPackingList {
@@ -61,6 +75,7 @@ export interface RawDepositInvoice {
   docDate?: string; // ISO
   dueDate?: string; // ISO
   paiements?: RawPayment[];
+  creditNotes?: RawCreditNote[]; // avoirs reducing this deposit invoice
 }
 
 export interface RawDocFlowSlot {

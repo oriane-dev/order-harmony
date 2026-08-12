@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/select";
 import { shortMoney, fmtDate } from "@/lib/format";
 import * as M from "@/lib/thalae-mutations";
-import type { PaymentTarget } from "@/lib/thalae-mutations";
+import type { PaymentTarget, CreditNoteTarget } from "@/lib/thalae-mutations";
 import type {
   RawDepositInvoice,
   RawFacture,
@@ -391,6 +391,83 @@ function PaymentsSection({
   );
 }
 
+/* ── Credit notes (avoirs) on a facture or a deposit invoice ──────────── */
+
+function CreditNotesBlock({
+  order,
+  target,
+  currency,
+  mutation,
+}: {
+  order: RawOrder;
+  target: CreditNoteTarget;
+  currency: string;
+  mutation: ReturnType<typeof useOrderMutation>;
+}) {
+  const addRef = useRef<HTMLInputElement>(null);
+  const notes = M.getCreditNotes(order, target);
+  return (
+    <div className="space-y-1.5">
+      {notes.map((cn) => (
+        <div
+          key={cn.id}
+          className="flex flex-wrap items-center gap-2 text-xs bg-destructive/5 rounded-md px-2.5 py-1.5"
+        >
+          <span className="text-[10px] uppercase tracking-widest text-destructive">Avoir</span>
+          <PdfSlot
+            pdf={cn.pdf}
+            label="PDF de l'avoir"
+            busy={mutation.isPending}
+            onUpload={(f) => mutation.mutate((o) => M.setCreditNotePdf(o, target, cn.id, f))}
+            onDelete={() => mutation.mutate((o) => M.clearCreditNotePdf(o, target, cn.id))}
+          />
+          {cn.docNo && <span className="text-muted-foreground num">{cn.docNo}</span>}
+          <span className="flex items-center gap-0.5 text-destructive">
+            <span>−</span>
+            <AmountField
+              value={cn.montant}
+              currency={cn.devise || currency}
+              busy={mutation.isPending}
+              allowCurrencyChange
+              onSave={(v, c) =>
+                mutation.mutate((o) => {
+                  const next = M.setCreditNoteAmount(o, target, cn.id, v);
+                  return c ? M.setCreditNoteCurrency(next, target, cn.id, c) : next;
+                })
+              }
+            />
+          </span>
+          <span className="flex-1" />
+          <button
+            onClick={() => mutation.mutate((o) => M.removeCreditNote(o, target, cn.id))}
+            className="text-muted-foreground hover:text-destructive"
+            aria-label="Supprimer l'avoir"
+          >
+            <Trash2 className="size-3" />
+          </button>
+        </div>
+      ))}
+      <input
+        ref={addRef}
+        type="file"
+        accept=".pdf"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) mutation.mutate((o) => M.addCreditNoteWithPdf(o, target, f));
+          e.target.value = "";
+        }}
+      />
+      <button
+        onClick={() => addRef.current?.click()}
+        className="inline-flex items-center gap-1 text-xs text-destructive/80 hover:text-destructive hover:underline"
+      >
+        <Plus className="size-3" /> Ajouter un avoir
+      </button>
+    </div>
+  );
+}
+
 /* ── Factures within a packing list ───────────────────────────────────── */
 
 function FactureRow({
@@ -409,72 +486,81 @@ function FactureRow({
   const fileRef = useRef<HTMLInputElement>(null);
   const remaining = M.factureRemaining(order, plId, facture.id);
   return (
-    <div className="flex items-center gap-3 text-sm bg-surface-2 rounded-md px-3 py-2">
-      <input
-        ref={fileRef}
-        type="file"
-        accept=".pdf"
-        className="hidden"
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          if (f) mutation.mutate((o) => M.setFacturePdf(o, plId, facture.id, f));
-          e.target.value = "";
-        }}
-      />
-      {facture.pdf ? (
-        <a
-          href={facture.pdf.url}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center gap-1 text-accent hover:underline truncate max-w-[140px]"
-        >
-          <Paperclip className="size-3.5 shrink-0" /> {facture.pdf.name}
-        </a>
-      ) : (
-        <button
-          onClick={() => fileRef.current?.click()}
-          className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
-        >
-          <Upload className="size-3.5" /> PDF de la facture
-        </button>
-      )}
-      <div className="flex items-center gap-1.5 text-xs">
-        <span className="text-muted-foreground">Montant</span>
-        <AmountField
-          value={facture.montant}
-          currency={facture.devise || currency}
-          busy={mutation.isPending}
-          allowCurrencyChange
-          onSave={(v, c) =>
-            mutation.mutate((o) => {
-              const next = M.setFactureAmount(o, plId, facture.id, v, false);
-              return c ? M.setFactureCurrency(next, plId, facture.id, c) : next;
-            })
-          }
+    <div className="bg-surface-2 rounded-md px-3 py-2 space-y-2">
+      <div className="flex items-center gap-3 text-sm">
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".pdf"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) mutation.mutate((o) => M.setFacturePdf(o, plId, facture.id, f));
+            e.target.value = "";
+          }}
         />
-      </div>
-      <span className="flex-1" />
-      {remaining > 0 ? (
+        {facture.pdf ? (
+          <a
+            href={facture.pdf.url}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 text-accent hover:underline truncate max-w-[140px]"
+          >
+            <Paperclip className="size-3.5 shrink-0" /> {facture.pdf.name}
+          </a>
+        ) : (
+          <button
+            onClick={() => fileRef.current?.click()}
+            className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+          >
+            <Upload className="size-3.5" /> PDF de la facture
+          </button>
+        )}
+        <div className="flex items-center gap-1.5 text-xs">
+          <span className="text-muted-foreground">Montant</span>
+          <AmountField
+            value={facture.montant}
+            currency={facture.devise || currency}
+            busy={mutation.isPending}
+            allowCurrencyChange
+            onSave={(v, c) =>
+              mutation.mutate((o) => {
+                const next = M.setFactureAmount(o, plId, facture.id, v, false);
+                return c ? M.setFactureCurrency(next, plId, facture.id, c) : next;
+              })
+            }
+          />
+        </div>
+        <span className="flex-1" />
+        {remaining > 0 ? (
+          <button
+            disabled={mutation.isPending}
+            onClick={() => mutation.mutate((o) => M.settleFacture(o, plId, facture.id))}
+            className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md border border-border text-accent hover:bg-surface disabled:opacity-50"
+            title="Ajoute automatiquement une preuve de virement pour le montant restant"
+          >
+            <Wallet className="size-3.5" /> Solder{" "}
+            {shortMoney(remaining, facture.devise || currency)}
+          </button>
+        ) : (
+          (facture.montant ?? 0) > 0 && (
+            <span className="text-[10px] uppercase tracking-widest text-success">Soldée</span>
+          )
+        )}
         <button
-          disabled={mutation.isPending}
-          onClick={() => mutation.mutate((o) => M.settleFacture(o, plId, facture.id))}
-          className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md border border-border text-accent hover:bg-surface disabled:opacity-50"
-          title="Ajoute automatiquement une preuve de virement pour le montant restant"
+          onClick={() => mutation.mutate((o) => M.removeFacture(o, plId, facture.id))}
+          className="text-muted-foreground hover:text-destructive"
+          aria-label="Supprimer la facture"
         >
-          <Wallet className="size-3.5" /> Solder {shortMoney(remaining, facture.devise || currency)}
+          <Trash2 className="size-3.5" />
         </button>
-      ) : (
-        (facture.montant ?? 0) > 0 && (
-          <span className="text-[10px] uppercase tracking-widest text-success">Soldée</span>
-        )
-      )}
-      <button
-        onClick={() => mutation.mutate((o) => M.removeFacture(o, plId, facture.id))}
-        className="text-muted-foreground hover:text-destructive"
-        aria-label="Supprimer la facture"
-      >
-        <Trash2 className="size-3.5" />
-      </button>
+      </div>
+      <CreditNotesBlock
+        order={order}
+        target={{ type: "facture", plId, factureId: facture.id }}
+        currency={currency}
+        mutation={mutation}
+      />
     </div>
   );
 }
@@ -636,6 +722,12 @@ function DepositInvoiceRow({
           mutation={mutation}
         />
       </div>
+      <CreditNotesBlock
+        order={order}
+        target={{ type: "deposit", diId: di.id }}
+        currency={currency}
+        mutation={mutation}
+      />
     </div>
   );
 }

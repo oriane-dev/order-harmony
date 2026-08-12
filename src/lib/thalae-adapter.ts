@@ -15,6 +15,12 @@ function hasPdf(p: RawPdf | null | undefined): boolean {
   return Boolean(p && (p.url || p.id));
 }
 
+// Total of the credit notes (avoirs) attached to an invoice — a positive amount that
+// is subtracted from the invoice's own amount to get the net invoiced value.
+function creditsOf(item: { creditNotes?: { montant?: number }[] } | undefined): number {
+  return (item?.creditNotes ?? []).reduce((a, c) => a + num(c.montant), 0);
+}
+
 function toCurrency(v: string | undefined): Currency {
   return v === "USD" || v === "GBP" || v === "CNY" ? v : "EUR";
 }
@@ -163,7 +169,7 @@ export function rawOrderToLedgerOrder(
     // they don't add to `delivered`). Attached to the pro forma node in the graph.
     for (const di of df.proforma.depositInvoices ?? []) {
       const diId = `${row.id}:pf:di:${di.id}`;
-      const diMontant = num(di.montant);
+      const diMontant = num(di.montant) - creditsOf(di);
       const diPaid = (di.paiements ?? []).reduce((a, p) => a + num(p.montant), 0);
       invoiced += diMontant;
       paid += diPaid;
@@ -209,13 +215,31 @@ export function rawOrderToLedgerOrder(
           });
         }
       }
+      for (const cn of di.creditNotes ?? []) {
+        const cnId = `${diId}:cn:${cn.id}`;
+        docs.push({
+          id: cnId,
+          kind: "supplier_invoice",
+          number: "Avoir",
+          date: cn.date ?? cn.docDate ?? "",
+          amount: -num(cn.montant),
+          currency: toCurrency(cn.devise) || currency,
+          status: "issued",
+          linkedTo: [],
+        });
+        edgePairs.push([diId, cnId]);
+      }
     }
   }
 
   for (const pl of df?.packingLists ?? []) {
     const plId = `${row.id}:pl:${pl.id}`;
     const invoices = packingListInvoices(pl);
-    const plInvoiced = invoices.reduce((a, f) => a + (num(f.montant) || num(f.montantBrut)), 0);
+    // net of credit notes (avoirs) attached to each invoice
+    const plInvoiced = invoices.reduce(
+      (a, f) => a + (num(f.montant) || num(f.montantBrut)) - creditsOf(f),
+      0,
+    );
     const plPaid = (pl.paiements ?? []).reduce((a, p) => a + num(p.montant), 0);
     delivered += plInvoiced;
     invoiced += plInvoiced;
@@ -247,7 +271,7 @@ export function rawOrderToLedgerOrder(
 
     invoices.forEach((f, i) => {
       const fId = `${row.id}:pl:${pl.id}:inv:${f.id ?? i}`;
-      const fAmount = num(f.montant) || num(f.montantBrut);
+      const fAmount = (num(f.montant) || num(f.montantBrut)) - creditsOf(f);
       docs.push({
         id: fId,
         kind: "supplier_invoice",
@@ -265,6 +289,20 @@ export function rawOrderToLedgerOrder(
         linkedTo: [],
       });
       edgePairs.push([plId, fId]);
+      for (const cn of f.creditNotes ?? []) {
+        const cnId = `${fId}:cn:${cn.id}`;
+        docs.push({
+          id: cnId,
+          kind: "supplier_invoice",
+          number: "Avoir",
+          date: cn.date ?? cn.docDate ?? row.dateLivraison ?? "",
+          amount: -num(cn.montant),
+          currency: toCurrency(cn.devise) || currency,
+          status: "issued",
+          linkedTo: [],
+        });
+        edgePairs.push([fId, cnId]);
+      }
     });
 
     for (const pay of pl.paiements ?? []) {

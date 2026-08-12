@@ -10,6 +10,7 @@ import { extractPaymentFromPdf } from "@/lib/thalae-extract";
 import type {
   RawAttachment,
   RawComment,
+  RawCreditNote,
   RawDepositInvoice,
   RawDocFlow,
   RawFacture,
@@ -465,7 +466,8 @@ export function factureRemaining(order: RawOrder, plId: string, factureId: strin
   if (!pl) return 0;
   const facture = getPlFactures(pl).find((f) => f.id === factureId);
   if (!facture) return 0;
-  const due = facture.montant ?? facture.montantBrut ?? 0;
+  const credits = (facture.creditNotes ?? []).reduce((a, c) => a + (c.montant ?? 0), 0);
+  const due = (facture.montant ?? facture.montantBrut ?? 0) - credits;
   const paidSoFar = (pl.paiements ?? []).reduce((a, p) => a + (p.montant ?? 0), 0);
   return Math.round((due - paidSoFar) * 100) / 100;
 }
@@ -587,7 +589,8 @@ export function setDepositInvoiceDueDate(order: RawOrder, diId: string, dueDate:
 export function depositRemaining(order: RawOrder, diId: string): number {
   const di = getDepositInvoices(order).find((d) => d.id === diId);
   if (!di) return 0;
-  const due = di.montant ?? 0;
+  const credits = (di.creditNotes ?? []).reduce((a, c) => a + (c.montant ?? 0), 0);
+  const due = (di.montant ?? 0) - credits;
   const paid = (di.paiements ?? []).reduce((a, p) => a + (p.montant ?? 0), 0);
   return Math.round((due - paid) * 100) / 100;
 }
@@ -605,6 +608,149 @@ export function settleDepositInvoice(order: RawOrder, diId: string): RawOrder {
     ...(di?.devise ? { devise: di.devise } : {}),
   };
   return withPayments(order, target, [...getPayments(order, target), payment]);
+}
+
+/* ── CREDIT NOTES (avoirs) on a delivery facture or a deposit invoice ──── */
+
+// Where a credit note lives: on a facture inside a packing list, or on a deposit
+// invoice under the pro forma.
+export type CreditNoteTarget =
+  | { type: "facture"; plId: string; factureId: string }
+  | { type: "deposit"; diId: string };
+
+export function getCreditNotes(order: RawOrder, target: CreditNoteTarget): RawCreditNote[] {
+  const df = ensureDocFlow(order);
+  if (target.type === "deposit") {
+    const di = (df.proforma?.depositInvoices ?? []).find((d) => d.id === target.diId);
+    return di?.creditNotes ?? [];
+  }
+  const pl = (df.packingLists ?? []).find((p) => p.id === target.plId);
+  const f = pl && getPlFactures(pl).find((x) => x.id === target.factureId);
+  return f?.creditNotes ?? [];
+}
+
+function withCreditNotes(
+  order: RawOrder,
+  target: CreditNoteTarget,
+  list: RawCreditNote[],
+): RawOrder {
+  const df = ensureDocFlow(order);
+  if (target.type === "deposit")
+    return withDocFlow(order, {
+      ...df,
+      proforma: {
+        ...ensureProforma(df),
+        depositInvoices: (df.proforma?.depositInvoices ?? []).map((di) =>
+          di.id === target.diId ? { ...di, creditNotes: list } : di,
+        ),
+      },
+    });
+  return withDocFlow(order, {
+    ...df,
+    packingLists: (df.packingLists ?? []).map((pl) =>
+      pl.id !== target.plId
+        ? pl
+        : {
+            ...pl,
+            factures: getPlFactures(pl).map((f) =>
+              f.id === target.factureId ? { ...f, creditNotes: list } : f,
+            ),
+          },
+    ),
+  });
+}
+
+export function addCreditNote(order: RawOrder, target: CreditNoteTarget): RawOrder {
+  return withCreditNotes(order, target, [
+    ...getCreditNotes(order, target),
+    { id: uid(), pdf: null },
+  ]);
+}
+
+// Combined add + PDF (with amount auto-extraction), like the facture/deposit pickers.
+export async function addCreditNoteWithPdf(
+  order: RawOrder,
+  target: CreditNoteTarget,
+  file: File,
+): Promise<RawOrder> {
+  const pdf = await uploadPdf(file);
+  const extracted = await extractPaymentFromPdf(file, "invoice");
+  const cn: RawCreditNote = {
+    id: uid(),
+    pdf,
+    ...(extracted?.montant != null ? { montant: extracted.montant } : {}),
+  };
+  return withCreditNotes(order, target, [...getCreditNotes(order, target), cn]);
+}
+
+export function removeCreditNote(
+  order: RawOrder,
+  target: CreditNoteTarget,
+  cnId: string,
+): RawOrder {
+  const cn = getCreditNotes(order, target).find((c) => c.id === cnId);
+  removePdf(cn?.pdf);
+  return withCreditNotes(
+    order,
+    target,
+    getCreditNotes(order, target).filter((c) => c.id !== cnId),
+  );
+}
+
+export function setCreditNoteAmount(
+  order: RawOrder,
+  target: CreditNoteTarget,
+  cnId: string,
+  value: number,
+): RawOrder {
+  return withCreditNotes(
+    order,
+    target,
+    getCreditNotes(order, target).map((c) => (c.id === cnId ? { ...c, montant: value } : c)),
+  );
+}
+
+export function setCreditNoteCurrency(
+  order: RawOrder,
+  target: CreditNoteTarget,
+  cnId: string,
+  devise: string | undefined,
+): RawOrder {
+  return withCreditNotes(
+    order,
+    target,
+    getCreditNotes(order, target).map((c) => (c.id === cnId ? { ...c, devise } : c)),
+  );
+}
+
+export async function setCreditNotePdf(
+  order: RawOrder,
+  target: CreditNoteTarget,
+  cnId: string,
+  file: File,
+): Promise<RawOrder> {
+  const existing = getCreditNotes(order, target).find((c) => c.id === cnId);
+  removePdf(existing?.pdf);
+  const pdf = await uploadPdf(file);
+  return withCreditNotes(
+    order,
+    target,
+    getCreditNotes(order, target).map((c) => (c.id === cnId ? { ...c, pdf } : c)),
+  );
+}
+
+export function clearCreditNotePdf(
+  order: RawOrder,
+  target: CreditNoteTarget,
+  cnId: string,
+): RawOrder {
+  const cn = getCreditNotes(order, target).find((c) => c.id === cnId);
+  removePdf(cn?.pdf);
+  return withCreditNotes(
+    order,
+    target,
+    getCreditNotes(order, target).map((c) => (c.id === cnId ? { ...c, pdf: null } : c)),
+  );
 }
 
 /* ── GENERIC ORDER ATTACHMENTS (flat list, independent of docFlow) ────── */
