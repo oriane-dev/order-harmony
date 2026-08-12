@@ -21,6 +21,7 @@ import { seasonOf, seasonSortKey } from "@/lib/season";
 import { shortMoney, fmtDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { Entity } from "@/lib/entities";
+import type { RawFacture } from "@/lib/thalae-types";
 
 /* ── month-key helpers (keys are "YYYY-MM", so string compare = chronological) ── */
 function keyFromDate(d: Date): string {
@@ -90,6 +91,7 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
       if (!df) continue;
       const payments = [
         ...(df.proforma?.paiements ?? []),
+        ...(df.proforma?.depositInvoices ?? []).flatMap((di) => di.paiements ?? []),
         ...(df.packingLists ?? []).flatMap((pl) => pl.paiements ?? []),
         ...(df.factureDefinitive?.paiements ?? []),
       ];
@@ -130,6 +132,18 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
           ...(df.packingLists ?? []).map((pl) => ({
             paiements: pl.paiements ?? [],
             factures: pl.factures ?? [],
+          })),
+          // deposit invoices behave like factures for the receivables forecast
+          ...(df.proforma?.depositInvoices ?? []).map((di) => ({
+            paiements: di.paiements ?? [],
+            factures: [
+              {
+                id: di.id,
+                montant: di.montant,
+                dueDate: di.dueDate,
+                docNo: di.docNo,
+              } as RawFacture,
+            ],
           })),
         ];
         if (df.factureDefinitive?.montant)

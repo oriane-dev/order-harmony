@@ -110,7 +110,8 @@ export function rawOrderToLedgerOrder(
     df?.proforma &&
     (hasPdf(df.proforma.pdf) ||
       num(df.proforma.montant) > 0 ||
-      (df.proforma.paiements?.length ?? 0) > 0)
+      (df.proforma.paiements?.length ?? 0) > 0 ||
+      (df.proforma.depositInvoices?.length ?? 0) > 0)
   ) {
     const pfId = `${row.id}:pf`;
     const pfMontant = num(df.proforma.montant);
@@ -154,6 +155,59 @@ export function rawOrderToLedgerOrder(
           currency: toCurrency(pay.devise) || currency,
           refId: payId,
         });
+      }
+    }
+
+    // Deposit invoices billed against the pro forma — real invoices: their amount
+    // counts as invoiced and their payments as paid (they are NOT deliveries, so
+    // they don't add to `delivered`). Attached to the pro forma node in the graph.
+    for (const di of df.proforma.depositInvoices ?? []) {
+      const diId = `${row.id}:pf:di:${di.id}`;
+      const diMontant = num(di.montant);
+      const diPaid = (di.paiements ?? []).reduce((a, p) => a + num(p.montant), 0);
+      invoiced += diMontant;
+      paid += diPaid;
+      docs.push({
+        id: diId,
+        kind: "supplier_invoice",
+        number: "Facture d'acompte",
+        date: di.docDate ?? row.dateCommande ?? "",
+        amount: diMontant,
+        currency: toCurrency(di.devise) || currency,
+        status:
+          diMontant > 0 && diPaid >= diMontant * 0.99
+            ? "paid"
+            : diPaid > 0
+              ? "partially_paid"
+              : "issued",
+        remaining: diMontant > 0 ? Math.max(0, diMontant - diPaid) : undefined,
+        linkedTo: [],
+      });
+      edgePairs.push([pfId, diId]);
+      for (const pay of di.paiements ?? []) {
+        const payId = `${diId}:pay:${pay.id}`;
+        docs.push({
+          id: payId,
+          kind: "transfer",
+          number: "Virement",
+          date: pay.date ?? "",
+          amount: num(pay.montant),
+          currency: toCurrency(pay.devise) || currency,
+          status: "sent",
+          linkedTo: [],
+        });
+        edgePairs.push([diId, payId]);
+        if (pay.date) {
+          timeline.push({
+            id: `t:${payId}`,
+            at: pay.date,
+            kind: "transfer",
+            title: "Encaissement d'acompte",
+            amount: num(pay.montant),
+            currency: toCurrency(pay.devise) || currency,
+            refId: payId,
+          });
+        }
       }
     }
   }

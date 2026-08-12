@@ -48,6 +48,21 @@ export interface RawPackingList {
   qty?: number;
 }
 
+// A deposit invoice (facture d'acompte) — the formal invoicing of the pro forma
+// deposit. Lives UNDER the pro forma slot (a pro forma can have several). It is a
+// real invoice: its amount counts as facturé and its payments as encaissé, exactly
+// like it did when it was (wrongly) stored as a delivery facture.
+export interface RawDepositInvoice {
+  id: string;
+  docNo?: string; // e.g. "IN-500571"
+  montant?: number;
+  devise?: string;
+  pdf?: RawPdf | null;
+  docDate?: string; // ISO
+  dueDate?: string; // ISO
+  paiements?: RawPayment[];
+}
+
 export interface RawDocFlowSlot {
   pdf?: RawPdf | null;
   montant?: number;
@@ -57,6 +72,8 @@ export interface RawDocFlowSlot {
   docNo?: string; // e.g. "PF-00015" — pro forma number
   docDate?: string; // ISO
   dueDate?: string; // ISO
+  // deposit invoices billed against this pro forma (facturé + encaissé)
+  depositInvoices?: RawDepositInvoice[];
 }
 
 export interface RawDocFlow {

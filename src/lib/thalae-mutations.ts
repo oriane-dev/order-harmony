@@ -10,6 +10,7 @@ import { extractPaymentFromPdf } from "@/lib/thalae-extract";
 import type {
   RawAttachment,
   RawComment,
+  RawDepositInvoice,
   RawDocFlow,
   RawFacture,
   RawOrder,
@@ -370,12 +371,17 @@ export function setFactureCurrency(
 export type PaymentTarget =
   | { type: "proforma" }
   | { type: "packingList"; plId: string }
-  | { type: "factureDefinitive" };
+  | { type: "factureDefinitive" }
+  | { type: "depositInvoice"; diId: string };
 
 export function getPayments(order: RawOrder, target: PaymentTarget): RawPayment[] {
   const df = ensureDocFlow(order);
   if (target.type === "proforma") return df.proforma?.paiements ?? [];
   if (target.type === "factureDefinitive") return df.factureDefinitive?.paiements ?? [];
+  if (target.type === "depositInvoice") {
+    const di = (df.proforma?.depositInvoices ?? []).find((d) => d.id === target.diId);
+    return di?.paiements ?? [];
+  }
   const pl = (df.packingLists ?? []).find((p) => p.id === target.plId);
   return pl?.paiements ?? [];
 }
@@ -388,6 +394,16 @@ function withPayments(order: RawOrder, target: PaymentTarget, payments: RawPayme
     return withDocFlow(order, {
       ...df,
       factureDefinitive: { ...df.factureDefinitive, paiements: payments },
+    });
+  if (target.type === "depositInvoice")
+    return withDocFlow(order, {
+      ...df,
+      proforma: {
+        ...df.proforma,
+        depositInvoices: (df.proforma?.depositInvoices ?? []).map((di) =>
+          di.id === target.diId ? { ...di, paiements: payments } : di,
+        ),
+      },
     });
   return withDocFlow(order, {
     ...df,
@@ -469,6 +485,124 @@ export function settleFacture(order: RawOrder, plId: string, factureId: string):
     montant: remaining,
     date: "",
     ...(facture && facture.devise ? { devise: facture.devise } : {}),
+  };
+  return withPayments(order, target, [...getPayments(order, target), payment]);
+}
+
+/* ── DEPOSIT INVOICES (facture d'acompte, billed against the pro forma) ── */
+
+function ensureProforma(df: RawDocFlow) {
+  return df.proforma ?? { pdf: null, paiements: [] };
+}
+
+function getDepositInvoices(order: RawOrder): RawDepositInvoice[] {
+  return ensureDocFlow(order).proforma?.depositInvoices ?? [];
+}
+
+function withDepositInvoices(order: RawOrder, list: RawDepositInvoice[]): RawOrder {
+  const df = ensureDocFlow(order);
+  return withDocFlow(order, { ...df, proforma: { ...ensureProforma(df), depositInvoices: list } });
+}
+
+function mapDeposit(
+  order: RawOrder,
+  diId: string,
+  fn: (di: RawDepositInvoice) => RawDepositInvoice,
+): RawOrder {
+  return withDepositInvoices(
+    order,
+    getDepositInvoices(order).map((di) => (di.id === diId ? fn(di) : di)),
+  );
+}
+
+// Combines "add a deposit invoice" + "attach its PDF" (with amount auto-extraction),
+// matching how factures are added from a file picker.
+export async function addDepositInvoiceWithPdf(order: RawOrder, file: File): Promise<RawOrder> {
+  const pdf = await uploadPdf(file);
+  const extracted = await extractPaymentFromPdf(file, "invoice");
+  const di: RawDepositInvoice = {
+    id: uid(),
+    pdf,
+    ...(extracted?.montant != null ? { montant: extracted.montant } : {}),
+    paiements: [],
+  };
+  return withDepositInvoices(order, [...getDepositInvoices(order), di]);
+}
+
+export function addDepositInvoice(order: RawOrder): RawOrder {
+  return withDepositInvoices(order, [
+    ...getDepositInvoices(order),
+    { id: uid(), pdf: null, paiements: [] },
+  ]);
+}
+
+export function removeDepositInvoice(order: RawOrder, diId: string): RawOrder {
+  const di = getDepositInvoices(order).find((d) => d.id === diId);
+  removePdf(di?.pdf);
+  return withDepositInvoices(
+    order,
+    getDepositInvoices(order).filter((d) => d.id !== diId),
+  );
+}
+
+export async function setDepositInvoicePdf(
+  order: RawOrder,
+  diId: string,
+  file: File,
+): Promise<RawOrder> {
+  const existing = getDepositInvoices(order).find((d) => d.id === diId);
+  removePdf(existing?.pdf);
+  const pdf = await uploadPdf(file);
+  const extracted = await extractPaymentFromPdf(file, "invoice");
+  return mapDeposit(order, diId, (d) => ({
+    ...d,
+    pdf,
+    ...(extracted?.montant != null && d.montant == null ? { montant: extracted.montant } : {}),
+  }));
+}
+
+export function clearDepositInvoicePdf(order: RawOrder, diId: string): RawOrder {
+  const di = getDepositInvoices(order).find((d) => d.id === diId);
+  removePdf(di?.pdf);
+  return mapDeposit(order, diId, (d) => ({ ...d, pdf: null }));
+}
+
+export function setDepositInvoiceAmount(order: RawOrder, diId: string, value: number): RawOrder {
+  return mapDeposit(order, diId, (d) => ({ ...d, montant: value }));
+}
+
+export function setDepositInvoiceCurrency(
+  order: RawOrder,
+  diId: string,
+  devise: string | undefined,
+): RawOrder {
+  return mapDeposit(order, diId, (d) => ({ ...d, devise }));
+}
+
+export function setDepositInvoiceDueDate(order: RawOrder, diId: string, dueDate: string): RawOrder {
+  return mapDeposit(order, diId, (d) => ({ ...d, dueDate }));
+}
+
+// Outstanding balance still due on a deposit invoice.
+export function depositRemaining(order: RawOrder, diId: string): number {
+  const di = getDepositInvoices(order).find((d) => d.id === diId);
+  if (!di) return 0;
+  const due = di.montant ?? 0;
+  const paid = (di.paiements ?? []).reduce((a, p) => a + (p.montant ?? 0), 0);
+  return Math.round((due - paid) * 100) / 100;
+}
+
+// "Solder" a deposit invoice: append a payment covering the outstanding balance.
+export function settleDepositInvoice(order: RawOrder, diId: string): RawOrder {
+  const remaining = depositRemaining(order, diId);
+  if (remaining <= 0) return order;
+  const di = getDepositInvoices(order).find((d) => d.id === diId);
+  const target: PaymentTarget = { type: "depositInvoice", diId };
+  const payment: RawPayment = {
+    id: uid(),
+    montant: remaining,
+    date: "",
+    ...(di?.devise ? { devise: di.devise } : {}),
   };
   return withPayments(order, target, [...getPayments(order, target), payment]);
 }

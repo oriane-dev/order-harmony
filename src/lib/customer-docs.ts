@@ -19,6 +19,7 @@
 // can exceed the ordered total; that is surfaced by the existing over-invoice alert.
 
 import type {
+  RawDepositInvoice,
   RawDocFlow,
   RawFacture,
   RawOrder,
@@ -161,6 +162,7 @@ export function existingDocNos(order: RawOrder): Set<string> {
   if (!df) return s;
   if (order.reference) s.add(order.reference); // SO / order-confirmation
   if (df.proforma?.docNo) s.add(df.proforma.docNo);
+  for (const di of df.proforma?.depositInvoices ?? []) if (di.docNo) s.add(di.docNo);
   for (const pl of df.packingLists ?? []) {
     if (pl.docNo) s.add(pl.docNo);
     for (const f of pl.factures ?? []) if (f.docNo) s.add(f.docNo);
@@ -192,19 +194,28 @@ function bump(rep: ImportReport, type: string) {
   rep.docsAdded[type] = (rep.docsAdded[type] ?? 0) + 1;
 }
 
-// Build the delivery/facture packing lists for one order from its DN + IN rows.
-// Factures are paired to deliveries by matching total within the order; unpaired
-// invoices get their own packing list (e.g. deposit invoices with no delivery),
-// unpaired deliveries get a packing list with no facture (shipped, not yet invoiced).
-function buildPackingLists(
+// Build the deliveries (packing lists) and deposit invoices for one order from its
+// DN + IN rows. An invoice is paired to a delivery by matching total within the order
+// → it's a delivery invoice (facture under that packing list). An invoice that pairs
+// with NO delivery is a deposit invoice (billing of the pro forma deposit) → it goes
+// under the pro forma, not the deliveries. Unpaired deliveries get a packing list with
+// no facture (shipped, not yet invoiced).
+function buildDeliveriesAndDeposits(
   dns: DocRow[],
   ins: DocRow[],
   salt: string,
   seen: Set<string>,
   rep: ImportReport,
-): RawPackingList[] {
+): { lists: RawPackingList[]; deposits: RawDepositInvoice[] } {
   const lists: RawPackingList[] = [];
+  const deposits: RawDepositInvoice[] = [];
   const insLeft = ins.filter((x) => !seen.has(x.docNo));
+  // A deposit invoice bills the pro forma deposit — it carries NO goods, so its
+  // quantity is 0. Delivery invoices always bill delivered goods (quantity ≥ 1).
+  // This cleanly separates the two even when an invoice doesn't pair with a delivery
+  // (e.g. a delivery credit/adjustment stays a delivery facture, not a deposit).
+  const deliveryIns = insLeft.filter((inv) => inv.qty !== 0);
+  const depositIns = insLeft.filter((inv) => inv.qty === 0);
   const used = new Set<number>();
 
   const makeFacture = (inv: DocRow): RawFacture => {
@@ -228,13 +239,15 @@ function buildPackingLists(
     if (seen.has(dn.docNo)) continue;
     bump(rep, "DN");
     seen.add(dn.docNo);
-    // pair an invoice by equal total (2-cent tolerance), preferring same quantity
-    let idx = insLeft.findIndex(
+    // pair a delivery invoice by equal total (2-cent tolerance), preferring same qty
+    let idx = deliveryIns.findIndex(
       (inv, k) => !used.has(k) && Math.abs(inv.total - dn.total) < 0.02 && inv.qty === dn.qty,
     );
     if (idx < 0)
-      idx = insLeft.findIndex((inv, k) => !used.has(k) && Math.abs(inv.total - dn.total) < 0.02);
-    const paired = idx >= 0 ? insLeft[idx] : undefined;
+      idx = deliveryIns.findIndex(
+        (inv, k) => !used.has(k) && Math.abs(inv.total - dn.total) < 0.02,
+      );
+    const paired = idx >= 0 ? deliveryIns[idx] : undefined;
     if (idx >= 0) used.add(idx);
     const pl: RawPackingList = {
       id: uid(salt),
@@ -248,8 +261,8 @@ function buildPackingLists(
     lists.push(pl);
   }
 
-  // invoices with no delivery (deposit / advance invoices)
-  insLeft.forEach((inv, k) => {
+  // delivery invoices with no matching delivery → standalone facture (e.g. a credit)
+  deliveryIns.forEach((inv, k) => {
     if (used.has(k) || seen.has(inv.docNo)) return;
     lists.push({
       id: uid(salt),
@@ -259,7 +272,23 @@ function buildPackingLists(
     });
   });
 
-  return lists;
+  // deposit invoices (quantity 0) → billed against the pro forma
+  for (const inv of depositIns) {
+    if (seen.has(inv.docNo)) continue;
+    bump(rep, "IN");
+    seen.add(inv.docNo);
+    deposits.push({
+      id: uid(salt),
+      docNo: inv.docNo,
+      montant: inv.total,
+      docDate: inv.date,
+      ...(inv.dueDate ? { dueDate: inv.dueDate } : {}),
+      pdf: null,
+      paiements: paymentFor(inv),
+    });
+  }
+
+  return { lists, deposits };
 }
 
 // Merge the CSV documents for a set of rows into new/updated RawOrders.
@@ -348,11 +377,21 @@ export function buildCustomerImport(
     );
     for (const x of extraPf) rep.warnings.push(`${base} : proforma multiple ${x.docNo} ignorée`);
 
-    // Deliveries + invoices
+    // Deliveries (with their delivery invoices) + deposit invoices (under pro forma)
     const dns = group.filter((g) => g.type === "DN");
     const ins = group.filter((g) => g.type === "IN");
-    const newLists = buildPackingLists(dns, ins, salt, seen, rep);
+    const { lists: newLists, deposits: newDeposits } = buildDeliveriesAndDeposits(
+      dns,
+      ins,
+      salt,
+      seen,
+      rep,
+    );
     df.packingLists = [...(df.packingLists ?? []), ...newLists];
+    if (newDeposits.length) {
+      const pf = df.proforma ?? { pdf: null, paiements: [] };
+      df.proforma = { ...pf, depositInvoices: [...(pf.depositInvoices ?? []), ...newDeposits] };
+    }
 
     // Not-yet-supported document types
     for (const g of group)
@@ -375,6 +414,8 @@ export function docPdfState(order: RawOrder, docNo: string): "filled" | "empty" 
   if (docNo === order.reference) return df?.poDocument ? "filled" : "empty";
   if (!df) return "absent";
   if (df.proforma?.docNo === docNo) return df.proforma.pdf ? "filled" : "empty";
+  for (const di of df.proforma?.depositInvoices ?? [])
+    if (di.docNo === docNo) return di.pdf ? "filled" : "empty";
   for (const pl of df.packingLists ?? []) {
     if (pl.docNo === docNo) return pl.packingListPdf ? "filled" : "empty";
     for (const f of pl.factures ?? []) if (f.docNo === docNo) return f.pdf ? "filled" : "empty";
@@ -402,6 +443,23 @@ export function attachPdfToOrder(
     if (pf.pdf) return { order, status: "already" };
     return {
       order: { ...order, docFlow: { ...df, proforma: { ...pf, pdf } } },
+      status: "attached",
+    };
+  }
+  // deposit invoices (under the pro forma)
+  if ((pf?.depositInvoices ?? []).some((di) => di.docNo === docNo)) {
+    let diAlready = false;
+    const depositInvoices = (pf!.depositInvoices ?? []).map((di) => {
+      if (di.docNo !== docNo) return di;
+      if (di.pdf) {
+        diAlready = true;
+        return di;
+      }
+      return { ...di, pdf };
+    });
+    if (diAlready) return { order, status: "already" };
+    return {
+      order: { ...order, docFlow: { ...df, proforma: { ...pf!, depositInvoices } } },
       status: "attached",
     };
   }

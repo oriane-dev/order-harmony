@@ -16,10 +16,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { shortMoney } from "@/lib/format";
+import { shortMoney, fmtDate } from "@/lib/format";
 import * as M from "@/lib/thalae-mutations";
 import type { PaymentTarget } from "@/lib/thalae-mutations";
-import type { RawFacture, RawOrder, RawPackingList, RawPayment, RawPdf } from "@/lib/thalae-types";
+import type {
+  RawDepositInvoice,
+  RawFacture,
+  RawOrder,
+  RawPackingList,
+  RawPayment,
+  RawPdf,
+} from "@/lib/thalae-types";
 import { ENTITIES, type Entity } from "@/lib/entities";
 import { Paperclip, Plus, Trash2, Upload, X, Pencil, Wallet } from "lucide-react";
 
@@ -552,6 +559,87 @@ function PackingListCard({
 
 /* ── Main editor ───────────────────────────────────────────────────────── */
 
+/* ── Deposit invoice (facture d'acompte, under the pro forma) ──────────── */
+
+function DepositInvoiceRow({
+  order,
+  di,
+  currency,
+  mutation,
+}: {
+  order: RawOrder;
+  di: RawDepositInvoice;
+  currency: string;
+  mutation: ReturnType<typeof useOrderMutation>;
+}) {
+  const remaining = M.depositRemaining(order, di.id);
+  return (
+    <div className="rounded-md border border-border p-3 space-y-2">
+      <div className="flex flex-wrap items-center gap-3 text-sm">
+        <PdfSlot
+          pdf={di.pdf}
+          label="PDF de la facture d'acompte"
+          busy={mutation.isPending}
+          onUpload={(f) => mutation.mutate((o) => M.setDepositInvoicePdf(o, di.id, f))}
+          onDelete={() => mutation.mutate((o) => M.clearDepositInvoicePdf(o, di.id))}
+        />
+        {di.docNo && <span className="text-xs text-muted-foreground num">{di.docNo}</span>}
+        <div className="flex items-center gap-1.5 text-xs">
+          <span className="text-muted-foreground">Montant</span>
+          <AmountField
+            value={di.montant}
+            currency={di.devise || currency}
+            busy={mutation.isPending}
+            allowCurrencyChange
+            onSave={(v, c) =>
+              mutation.mutate((o) => {
+                const next = M.setDepositInvoiceAmount(o, di.id, v);
+                return c ? M.setDepositInvoiceCurrency(next, di.id, c) : next;
+              })
+            }
+          />
+        </div>
+        {di.dueDate && (
+          <span className="text-xs text-muted-foreground">échéance {fmtDate(di.dueDate)}</span>
+        )}
+        <span className="flex-1" />
+        {remaining > 0 ? (
+          <button
+            disabled={mutation.isPending}
+            onClick={() => mutation.mutate((o) => M.settleDepositInvoice(o, di.id))}
+            className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md border border-border text-accent hover:bg-surface disabled:opacity-50"
+            title="Ajoute automatiquement une preuve de virement pour le montant restant"
+          >
+            <Wallet className="size-3.5" /> Solder {shortMoney(remaining, di.devise || currency)}
+          </button>
+        ) : (
+          (di.montant ?? 0) > 0 && (
+            <span className="text-[10px] uppercase tracking-widest text-success">Soldée</span>
+          )
+        )}
+        <button
+          onClick={() => mutation.mutate((o) => M.removeDepositInvoice(o, di.id))}
+          className="text-muted-foreground hover:text-destructive"
+          aria-label="Supprimer la facture d'acompte"
+        >
+          <Trash2 className="size-3.5" />
+        </button>
+      </div>
+      <div>
+        <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5">
+          Preuve d'encaissement
+        </div>
+        <PaymentsSection
+          order={order}
+          target={{ type: "depositInvoice", diId: di.id }}
+          currency={currency}
+          mutation={mutation}
+        />
+      </div>
+    </div>
+  );
+}
+
 export function DocflowEditor({
   order,
   entity = "supplier",
@@ -562,6 +650,7 @@ export function DocflowEditor({
   const mutation = useOrderMutation(order.id, entity);
   const currency = order.devise || "EUR";
   const df = order.docFlow;
+  const deposits = df?.proforma?.depositInvoices ?? [];
 
   return (
     <div className="space-y-4">
@@ -578,38 +667,81 @@ export function DocflowEditor({
 
       <div className="card-elev p-4 space-y-3">
         <div className="flex items-center justify-between">
-          <h3 className="font-serif text-lg">Pro forma</h3>
-          <PdfSlot
-            pdf={df?.proforma?.pdf}
-            label="Téléverser le PDF"
-            busy={mutation.isPending}
-            onUpload={(f) => mutation.mutate((o) => M.setProformaPdf(o, f))}
-            onDelete={() => mutation.mutate((o) => M.clearProformaPdf(o))}
-          />
+          <h3 className="font-serif text-lg">{deposits.length ? "Acompte" : "Pro forma"}</h3>
+          <button
+            onClick={() => mutation.mutate((o) => M.addDepositInvoice(o))}
+            className="inline-flex items-center gap-1 text-xs text-accent hover:underline"
+          >
+            <Plus className="size-3" /> Facture d'acompte
+          </button>
         </div>
-        <AmountField
-          value={df?.proforma?.montant}
-          currency={df?.proforma?.devise || currency}
-          busy={mutation.isPending}
-          allowCurrencyChange
-          onSave={(v, c) =>
-            mutation.mutate((o) => {
-              const next = M.setProformaAmount(o, v);
-              return c ? M.setProformaCurrency(next, c) : next;
-            })
-          }
-        />
-        <div>
-          <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5">
-            Preuve de paiement
+
+        {deposits.length ? (
+          // Pro forma kept visible but "en retrait" — the deposit invoice(s) below are
+          // now the reference documents.
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <span className="uppercase tracking-widest text-[10px]">Pro forma</span>
+            {df?.proforma?.docNo && <span className="num">{df.proforma.docNo}</span>}
+            {df?.proforma?.montant != null && (
+              <span className="num">
+                {shortMoney(df.proforma.montant, df.proforma.devise || currency)}
+              </span>
+            )}
+            <PdfSlot
+              pdf={df?.proforma?.pdf}
+              label="PDF pro forma"
+              busy={mutation.isPending}
+              onUpload={(f) => mutation.mutate((o) => M.setProformaPdf(o, f))}
+              onDelete={() => mutation.mutate((o) => M.clearProformaPdf(o))}
+            />
           </div>
-          <PaymentsSection
+        ) : (
+          <>
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">Document pro forma</span>
+              <PdfSlot
+                pdf={df?.proforma?.pdf}
+                label="Téléverser le PDF"
+                busy={mutation.isPending}
+                onUpload={(f) => mutation.mutate((o) => M.setProformaPdf(o, f))}
+                onDelete={() => mutation.mutate((o) => M.clearProformaPdf(o))}
+              />
+            </div>
+            <AmountField
+              value={df?.proforma?.montant}
+              currency={df?.proforma?.devise || currency}
+              busy={mutation.isPending}
+              allowCurrencyChange
+              onSave={(v, c) =>
+                mutation.mutate((o) => {
+                  const next = M.setProformaAmount(o, v);
+                  return c ? M.setProformaCurrency(next, c) : next;
+                })
+              }
+            />
+            <div>
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5">
+                Preuve de paiement
+              </div>
+              <PaymentsSection
+                order={order}
+                target={{ type: "proforma" }}
+                currency={currency}
+                mutation={mutation}
+              />
+            </div>
+          </>
+        )}
+
+        {deposits.map((di) => (
+          <DepositInvoiceRow
+            key={di.id}
             order={order}
-            target={{ type: "proforma" }}
+            di={di}
             currency={currency}
             mutation={mutation}
           />
-        </div>
+        ))}
       </div>
 
       <div className="space-y-3">
