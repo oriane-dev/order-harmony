@@ -158,11 +158,15 @@ export function OrderForm({
                     </FormControl>
                     <SelectContent>
                       <SelectItem value={MANUAL}>— Saisie libre —</SelectItem>
-                      {parties.map((s) => (
-                        <SelectItem key={s.id} value={s.id}>
-                          {s.nom}
-                        </SelectItem>
-                      ))}
+                      {parties
+                        // a Radix SelectItem must have a non-empty value — skip any
+                        // party record with a missing id (would crash the whole select)
+                        .filter((s) => s.id && s.nom)
+                        .map((s) => (
+                          <SelectItem key={s.id} value={s.id}>
+                            {s.nom}
+                          </SelectItem>
+                        ))}
                     </SelectContent>
                   </Select>
                   <FormMessage />
