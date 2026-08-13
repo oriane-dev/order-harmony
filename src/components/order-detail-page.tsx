@@ -13,10 +13,18 @@ import { OrderComments } from "@/components/order-comments";
 import { Button } from "@/components/ui/button";
 import { rawOrdersQueryOptions, rawCustomerOrdersQueryOptions } from "@/lib/data";
 import { severityLabel } from "@/lib/ledger-types";
-import { deleteOrder } from "@/lib/thalae-mutations";
+import { deleteOrder, saveOrder } from "@/lib/thalae-mutations";
 import { shortMoney, fmtDate, pct } from "@/lib/format";
 import { ENTITIES, type Entity } from "@/lib/entities";
-import { AlertTriangle, ArrowLeft, Pencil, Trash2, User } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  CheckCircle2,
+  RotateCcw,
+  Pencil,
+  Trash2,
+  User,
+} from "lucide-react";
 
 export function OrderDetailContent({ order, entity }: { order: Order; entity: Entity }) {
   const cfg = ENTITIES[entity];
@@ -34,6 +42,15 @@ export function OrderDetailContent({ order, entity }: { order: Order; entity: En
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: cfg.ordersKey });
       navigate(isSupplier ? { to: "/orders" } : { to: "/customer-orders" });
+    },
+  });
+
+  const isClosed = Boolean(rawOrder?.cloture);
+  const clotureMutation = useMutation({
+    mutationFn: (value: boolean) => saveOrder({ ...rawOrder!, cloture: value }, cfg.ordersTable),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: cfg.ordersKey });
+      queryClient.invalidateQueries({ queryKey: cfg.rawOrdersKey });
     },
   });
 
@@ -103,6 +120,28 @@ export function OrderDetailContent({ order, entity }: { order: Order; entity: En
                 </div>
               </div>
               <div className="flex items-center gap-2">
+                {rawOrder &&
+                  (isClosed ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={clotureMutation.isPending}
+                      onClick={() => clotureMutation.mutate(false)}
+                      title="Rouvrir la commande (le statut redevient calculé automatiquement)"
+                    >
+                      <RotateCcw /> Rouvrir
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={clotureMutation.isPending}
+                      onClick={() => clotureMutation.mutate(true)}
+                      title="Clôturer manuellement — le statut passe à « Clôturée » et les alertes sont masquées, même si le facturé dépasse le bon de commande."
+                    >
+                      <CheckCircle2 /> Clôturer
+                    </Button>
+                  ))}
                 <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
                   <Pencil /> Modifier
                 </Button>

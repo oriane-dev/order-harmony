@@ -391,7 +391,10 @@ export function rawOrderToLedgerOrder(
   // factures, the only amount a packing list carries in this data model.
   const packingListCount = df?.packingLists?.length ?? 0;
   let status: Order["status"];
-  if (packingListCount === 0) {
+  if (row.cloture) {
+    // manually closed by the user — overrides the computed ladder
+    status = "closed";
+  } else if (packingListCount === 0) {
     status = "confirmed";
   } else if (delivered < ordered * 0.99) {
     status = "partially_shipped";
@@ -403,7 +406,11 @@ export function rawOrderToLedgerOrder(
     status = "closed";
   }
 
-  const progress = ordered === 0 ? 0 : Math.min(1, (delivered + invoiced + paid) / (ordered * 3));
+  const progress = row.cloture
+    ? 1
+    : ordered === 0
+      ? 0
+      : Math.min(1, (delivered + invoiced + paid) / (ordered * 3));
 
   const alerts: Alert[] = [];
   if (invoiced > ordered * 1.01) {
@@ -469,7 +476,8 @@ export function rawOrderToLedgerOrder(
     owner: "",
     docs,
     timeline,
-    alerts,
+    // a manually-closed order is considered settled — hide its alerts everywhere
+    alerts: row.cloture ? [] : alerts,
   };
 }
 

@@ -165,6 +165,10 @@ export interface RawOrder {
   documents?: RawLegacyDocument[];
   docFlow?: RawDocFlow;
   comments?: RawComment[];
+  // Manually marked as closed by the user — forces the status to "closed" and clears
+  // its alerts, e.g. when the order was legitimately revised so "facture > bon de
+  // commande" is expected. New field (Thalae preserves unknown fields).
+  cloture?: boolean;
 }
 
 export interface RawConditionPaiement {
