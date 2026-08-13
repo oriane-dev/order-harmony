@@ -145,17 +145,6 @@ export function AppShell({ children }: { children: ReactNode }) {
             );
           })}
         </nav>
-        <div className="p-4 border-t border-sidebar-border">
-          <div className="flex items-center gap-3">
-            <div className="size-8 rounded-full bg-accent/20 flex items-center justify-center text-xs font-medium text-accent-foreground">
-              CR
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium truncate">Camille Rousseau</div>
-              <div className="text-xs text-muted-foreground truncate">Finance · Admin</div>
-            </div>
-          </div>
-        </div>
       </aside>
 
       <div className="flex-1 min-w-0 flex flex-col">
