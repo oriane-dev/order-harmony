@@ -11,7 +11,12 @@ import { DocflowEditor } from "@/components/docflow-editor";
 import { OrderForm } from "@/components/order-form";
 import { OrderComments } from "@/components/order-comments";
 import { Button } from "@/components/ui/button";
-import { rawOrdersQueryOptions, rawCustomerOrdersQueryOptions } from "@/lib/data";
+import {
+  ordersQueryOptions,
+  customerOrdersQueryOptions,
+  rawOrdersQueryOptions,
+  rawCustomerOrdersQueryOptions,
+} from "@/lib/data";
 import { severityLabel } from "@/lib/ledger-types";
 import { deleteOrder, saveOrder } from "@/lib/thalae-mutations";
 import { shortMoney, fmtDate, pct } from "@/lib/format";
@@ -26,7 +31,7 @@ import {
   User,
 } from "lucide-react";
 
-export function OrderDetailContent({ order, entity }: { order: Order; entity: Entity }) {
+export function OrderDetailContent({ order: initialOrder, entity }: { order: Order; entity: Entity }) {
   const cfg = ENTITIES[entity];
   const isSupplier = entity === "supplier";
   const navigate = useNavigate();
@@ -34,6 +39,12 @@ export function OrderDetailContent({ order, entity }: { order: Order; entity: En
   const { data: rawOrders } = useSuspenseQuery(
     isSupplier ? rawOrdersQueryOptions() : rawCustomerOrdersQueryOptions(),
   );
+  // Read the LIVE adapted order from the query cache (not the frozen route-loader
+  // copy) so status/alerts/KPIs update immediately after a mutation like "Clôturer".
+  const { data: liveOrders } = useSuspenseQuery(
+    isSupplier ? ordersQueryOptions() : customerOrdersQueryOptions(),
+  );
+  const order = liveOrders.find((o) => o.id === initialOrder.id) ?? initialOrder;
   const rawOrder = rawOrders.find((o) => o.id === order.id);
   const [editOpen, setEditOpen] = useState(false);
 
