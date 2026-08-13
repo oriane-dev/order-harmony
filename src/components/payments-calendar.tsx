@@ -13,6 +13,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ordersQueryOptions,
   rawOrdersQueryOptions,
+  rawSuppliersQueryOptions,
   customerOrdersQueryOptions,
   rawCustomerOrdersQueryOptions,
 } from "@/lib/data";
@@ -35,6 +36,13 @@ function keyFromIso(iso: string | undefined): string | null {
 function addMonthKey(key: string, delta: number): string {
   const [y, m] = key.split("-").map(Number);
   return keyFromDate(new Date(y, m - 1 + delta, 1));
+}
+function addDaysIso(iso: string | undefined, n: number): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
 }
 function monthLabelShort(key: string): { m: string; y: string } {
   const [y, m] = key.split("-").map(Number);
@@ -73,6 +81,9 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
   const { data: rawOrders } = useSuspenseQuery(
     isSupplier ? rawOrdersQueryOptions() : rawCustomerOrdersQueryOptions(),
   );
+  // Supplier payment terms (fiches) — used to forecast supplier décaissements (acompte /
+  // before shipment / net X days) for PS27 & SS27 orders.
+  const { data: rawSuppliers } = useSuspenseQuery(rawSuppliersQueryOptions());
 
   // Re-evaluated on every render, so the "current month" divider tracks the real calendar.
   const now = new Date();
@@ -110,16 +121,70 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
     // Per-invoice detail behind each overdue amount (for the drill-down dialog).
     const overdueItems: OverdueItem[] = [];
     if (isSupplier) {
-      // Supplier: whole-order outstanding (facturé − payé) at the expected-delivery
-      // month if still ahead, else next month.
-      for (const o of orders) {
-        const outstanding = Math.max(0, o.totals.invoiced - o.totals.paid);
-        if (outstanding <= 0.01) continue;
-        const ro = rawById.get(o.id);
-        const season = seasonById.get(o.id) ?? "";
-        const delivKey = keyFromIso(ro?.dateLivraison);
-        const key = delivKey && delivKey > currentKey ? delivKey : nextKey;
-        bump(expected, season, key, outstanding);
+      const supByName = new Map(rawSuppliers.map((s) => [(s.nom ?? "").trim().toLowerCase(), s]));
+      const adaptedById = new Map(orders.map((o) => [o.id, o]));
+      const paidOf = (ro: (typeof rawOrders)[number]): number => {
+        const df = ro.docFlow;
+        if (!df) return 0;
+        const all = [
+          ...(df.proforma?.paiements ?? []),
+          ...(df.proforma?.depositInvoices ?? []).flatMap((di) => di.paiements ?? []),
+          ...(df.packingLists ?? []).flatMap((pl) => pl.paiements ?? []),
+          ...(df.factureDefinitive?.paiements ?? []),
+        ];
+        return all.reduce((a, p) => a + (p.montant ?? 0), 0);
+      };
+      for (const ro of rawOrders) {
+        const season = seasonById.get(ro.id) ?? "";
+        const sup = supByName.get((ro.fournisseur ?? "").trim().toLowerCase());
+        const conds = sup?.conditionsPaiement ?? [];
+        const montant = ro.montant ?? 0;
+        const pctSum = conds.reduce((a, c) => a + (c.percent ?? 0), 0);
+        // Condition-based décaissement forecast, ONLY for PS27 & SS27 orders whose
+        // supplier has complete payment terms (sum ≈ 100 %) and a delivery date.
+        const scheduleable =
+          (season === "PS27" || season === "SS27") &&
+          conds.length > 0 &&
+          !!ro.dateLivraison &&
+          montant > 0 &&
+          Math.abs(pctSum - 100) < 0.5;
+        if (scheduleable) {
+          let paidLeft = paidOf(ro);
+          const insts = conds
+            .map((c) => {
+              const amt = (montant * (c.percent ?? 0)) / 100;
+              // acompte → à l'arrivée de la commande ; before shipment → delivery date ;
+              // net X days → delivery date + X jours.
+              const date =
+                c.triggerType === "date_order"
+                  ? ro.createdAt || ro.dateCommande || ""
+                  : (c.daysAfterEvent ?? 0) > 0
+                    ? addDaysIso(ro.dateLivraison, c.daysAfterEvent ?? 0)
+                    : ro.dateLivraison || "";
+              return { amt, date };
+            })
+            .filter((x) => x.date)
+            .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+          for (const it of insts) {
+            const cover = Math.min(paidLeft, it.amt);
+            paidLeft -= cover;
+            const rem = it.amt - cover;
+            if (rem <= 0.01) continue;
+            const k = keyFromIso(it.date);
+            if (!k) continue;
+            // an installment already due (this month or earlier) shows in the current month
+            bump(expected, season, k < currentKey ? currentKey : k, rem);
+          }
+        } else {
+          // generic fallback: whole-order outstanding (facturé − payé) at delivery month
+          const o = adaptedById.get(ro.id);
+          if (!o) continue;
+          const outstanding = Math.max(0, o.totals.invoiced - o.totals.paid);
+          if (outstanding <= 0.01) continue;
+          const delivKey = keyFromIso(ro.dateLivraison);
+          const key = delivKey && delivKey > currentKey ? delivKey : nextKey;
+          bump(expected, season, key, outstanding);
+        }
       }
     } else {
       // Customer: each unpaid invoice's own outstanding, at its due date (échéance).
@@ -231,7 +296,7 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
     const hasOverdue = [...overdueBySeason.values()].some((v) => Math.abs(v) > 0.01);
 
     return { months, seasons, cell, expectedAt, overdueOf, hasOverdue, overdueItems };
-  }, [orders, rawOrders, currentKey, nextKey, isSupplier]);
+  }, [orders, rawOrders, rawSuppliers, currentKey, nextKey, isSupplier]);
 
   const { months, seasons, cell, expectedAt, overdueOf, hasOverdue, overdueItems } = model;
 
@@ -284,7 +349,7 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
   const seasonLabel = (s: string) => (s === "" ? "Sans saison" : s);
   const realWord = isSupplier ? "Payé" : "Encaissé";
   const expectedNote = isSupplier
-    ? "prévu d'après le facturé"
+    ? "PS27 & SS27 : d'après les conditions de paiement ; sinon d'après le facturé"
     : "prévu d'après les échéances (due dates)";
 
   return (
@@ -308,8 +373,7 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
         </span>
         <span className="inline-flex items-center gap-1.5">
           <span className="size-2.5 rounded-sm bg-accent/40" /> Attendu ({expectedNote}), dès le
-          mois en cours
-          {!isSupplier && " (le mois en cours affiche les deux : encaissé + « +attendu »)"}
+          mois en cours (le mois en cours affiche les deux : réel + « +attendu »)
         </span>
         {hasOverdue && (
           <span className="inline-flex items-center gap-1.5">

@@ -406,15 +406,17 @@ ${text.slice(0, 7000)}`;
 export function parsePaymentTermsText(str: string | undefined): RawConditionPaiement[] {
   if (!str) return [];
   const conditions: RawConditionPaiement[] = [];
+  // Net terms recognised: "net X", "within X days", "X days net", "at X days" → X days
+  // after shipment. A bare "X days" (no net/within/at/after) is intentionally NOT
+  // matched — it's ambiguous, so that installment stays out and the order is flagged.
   const rx =
-    /(\d{1,3})\s*%[^,%]{0,80}?(deposit|advance|acompte|commande|before\s*ship|before\s*deliv|avant\s*exp|avant\s*livr|within\s*(\d+)\s*days?|net\s*(\d+)|after\s*ship)/gi;
+    /(\d{1,3})\s*%[^,%]{0,90}?(deposit|advance|acompte|commande|before\s*ship|before\s*deliv|avant\s*exp|avant\s*livr|within\s*(\d+)\s*days?|net\s*(\d+)|(\d+)\s*days?\s*net|at\s*(\d+)\s*days?|after\s*ship)/gi;
   let m;
   while ((m = rx.exec(str)) !== null) {
     const pct = parseInt(m[1]);
     const kw = m[2].toLowerCase();
-    const days = parseInt(m[3] || m[4] || "0");
+    const days = parseInt(m[3] || m[4] || m[5] || m[6] || "0");
     const isDeposit = /(deposit|advance|acompte|commande)/i.test(kw);
-    const isAfterShip = /(after\s*ship|within|net)/i.test(kw);
     if (pct > 0 && pct <= 100) {
       if (isDeposit)
         conditions.push({
@@ -424,7 +426,7 @@ export function parsePaymentTermsText(str: string | undefined): RawConditionPaie
           triggerType: "date_order",
           daysAfterOrder: 0,
         });
-      else if (isAfterShip)
+      else if (days > 0)
         conditions.push({
           id: uid(),
           label: m[0].trim(),
