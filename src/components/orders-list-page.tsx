@@ -4,10 +4,9 @@ import { useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { StatusChip } from "@/components/status-chip";
 import { OrderForm } from "@/components/order-form";
-import { ImportPanel } from "@/components/import-panel";
 import { CustomerImportDialog } from "@/components/customer-import-dialog";
+import { SupplierImportDialog } from "@/components/supplier-import-dialog";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,7 +30,6 @@ import {
   rawCustomersQueryOptions,
 } from "@/lib/data";
 import { deleteOrder } from "@/lib/thalae-mutations";
-import { importOrderFile } from "@/lib/thalae-import";
 import { exportBackup, exportOrdersExcel, importBackup } from "@/lib/thalae-export";
 import { shortMoney, fmtDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -370,18 +368,7 @@ export function OrdersListPage({ entity }: { entity: Entity }) {
       <OrderForm open={formOpen} onOpenChange={setFormOpen} entity={entity} />
 
       {isSupplier ? (
-        <Dialog open={importOpen} onOpenChange={setImportOpen}>
-          <DialogContent className="max-w-lg">
-            <DialogHeader>
-              <DialogTitle>Importer des commandes</DialogTitle>
-            </DialogHeader>
-            <ImportPanel
-              accept=".pdf,.txt,.csv"
-              helpText="Bons de commande PDF/texte (extraction IA si une clé API est renseignée dans Paramètres) ou un CSV de plusieurs commandes."
-              onProcessFile={(f) => importOrderFile(f, cfg.ordersTable)}
-            />
-          </DialogContent>
-        </Dialog>
+        <SupplierImportDialog open={importOpen} onOpenChange={setImportOpen} entity={entity} />
       ) : (
         <CustomerImportDialog open={importOpen} onOpenChange={setImportOpen} entity={entity} />
       )}
