@@ -157,28 +157,59 @@ function AmountField({
   const [draft, setDraft] = useState(String(value ?? ""));
   const [devise, setDevise] = useState(currency);
 
+  // Commit the edit — used by Enter, the OK button, a currency pick, AND leaving the
+  // field (blur). Auto-saving on blur means a typed amount isn't silently lost if the
+  // user clicks elsewhere without pressing OK.
+  const commit = (dev: string = devise) => {
+    const v = parseFloat(draft.replace(",", "."));
+    if (!Number.isFinite(v) || v < 0) {
+      setEditing(false);
+      return;
+    }
+    onSave(v, dev !== currency ? dev : undefined);
+    setEditing(false);
+  };
+
   if (editing) {
     return (
-      <form
+      <div
         className="flex items-center gap-1.5"
-        onSubmit={(e) => {
-          e.preventDefault();
-          const v = parseFloat(draft.replace(",", "."));
-          if (!Number.isFinite(v) || v < 0) return;
-          onSave(v, devise !== currency ? devise : undefined);
-          setEditing(false);
+        onBlur={(e) => {
+          // don't commit when focus moves within the group or into the currency
+          // dropdown (Radix renders it in a portal, outside this element)
+          const next = e.relatedTarget as HTMLElement | null;
+          if (
+            next &&
+            (e.currentTarget.contains(next) || next.closest("[data-radix-popper-content-wrapper]"))
+          )
+            return;
+          commit();
         }}
       >
         <Input
           autoFocus
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              commit();
+            } else if (e.key === "Escape") {
+              setEditing(false);
+            }
+          }}
           className="h-7 w-20 text-sm"
           type="number"
           step="0.01"
         />
         {allowCurrencyChange && (
-          <Select value={devise} onValueChange={setDevise}>
+          <Select
+            value={devise}
+            onValueChange={(c) => {
+              setDevise(c);
+              commit(c);
+            }}
+          >
             <SelectTrigger className="h-7 w-[68px] text-xs">
               <SelectValue />
             </SelectTrigger>
@@ -191,10 +222,10 @@ function AmountField({
             </SelectContent>
           </Select>
         )}
-        <Button type="submit" size="sm" className="h-7 px-2" disabled={busy}>
+        <Button type="button" size="sm" className="h-7 px-2" disabled={busy} onClick={() => commit()}>
           OK
         </Button>
-      </form>
+      </div>
     );
   }
   return (
