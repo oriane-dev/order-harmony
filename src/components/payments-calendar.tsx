@@ -64,6 +64,32 @@ interface OverdueItem {
   dueDate?: string;
 }
 
+// One order's contribution to a calendar cell (for the click-through detail).
+interface CellItem {
+  orderId: string;
+  ref: string;
+  party: string;
+  amount: number;
+  kind: "réel" | "attendu";
+  label: string;
+}
+
+function pushCell(
+  map: Map<string, Map<string, CellItem[]>>,
+  season: string,
+  key: string,
+  item: CellItem,
+) {
+  let row = map.get(season);
+  if (!row) {
+    row = new Map();
+    map.set(season, row);
+  }
+  const arr = row.get(key);
+  if (arr) arr.push(item);
+  else row.set(key, [item]);
+}
+
 function bump(map: Map<string, Map<string, number>>, season: string, key: string, amt: number) {
   let row = map.get(season);
   if (!row) {
@@ -94,6 +120,10 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
     const seasonById = new Map(rawOrders.map((o) => [o.id, seasonOf(o.notes)]));
     const rawById = new Map(rawOrders.map((o) => [o.id, o]));
 
+    // Per-cell order detail (which orders make up each amount) — for click-through.
+    const actualDetails = new Map<string, Map<string, CellItem[]>>();
+    const expectedDetails = new Map<string, Map<string, CellItem[]>>();
+
     // ACTUAL: real payments (out or in), bucketed by the month of the payment date × season.
     const actual = new Map<string, Map<string, number>>();
     for (const ro of rawOrders) {
@@ -110,6 +140,14 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
         const key = keyFromIso(p.date);
         if (!key) continue;
         bump(actual, season, key, p.montant ?? 0);
+        pushCell(actualDetails, season, key, {
+          orderId: ro.id,
+          ref: ro.reference ?? ro.id,
+          party: ro.fournisseur ?? "",
+          amount: p.montant ?? 0,
+          kind: "réel",
+          label: isSupplier ? "Paiement" : "Encaissement",
+        });
       }
     }
 
@@ -155,13 +193,19 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
               const amt = (montant * (c.percent ?? 0)) / 100;
               // acompte → à l'arrivée de la commande ; before shipment → delivery date ;
               // net X days → delivery date + X jours.
-              const date =
-                c.triggerType === "date_order"
-                  ? ro.createdAt || ro.dateCommande || ""
-                  : (c.daysAfterEvent ?? 0) > 0
-                    ? addDaysIso(ro.dateLivraison, c.daysAfterEvent ?? 0)
-                    : ro.dateLivraison || "";
-              return { amt, date };
+              const isDeposit = c.triggerType === "date_order";
+              const days = c.daysAfterEvent ?? 0;
+              const date = isDeposit
+                ? ro.createdAt || ro.dateCommande || ""
+                : days > 0
+                  ? addDaysIso(ro.dateLivraison, days)
+                  : ro.dateLivraison || "";
+              const label = isDeposit
+                ? `Acompte ${c.percent}%`
+                : days > 0
+                  ? `Solde ${c.percent}% (net ${days}j)`
+                  : `Avant expédition ${c.percent}%`;
+              return { amt, date, label };
             })
             .filter((x) => x.date)
             .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
@@ -173,7 +217,16 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
             const k = keyFromIso(it.date);
             if (!k) continue;
             // an installment already due (this month or earlier) shows in the current month
-            bump(expected, season, k < currentKey ? currentKey : k, rem);
+            const bk = k < currentKey ? currentKey : k;
+            bump(expected, season, bk, rem);
+            pushCell(expectedDetails, season, bk, {
+              orderId: ro.id,
+              ref: ro.reference ?? ro.id,
+              party: ro.fournisseur ?? "",
+              amount: rem,
+              kind: "attendu",
+              label: it.label,
+            });
           }
         } else {
           // generic fallback: whole-order outstanding (facturé − payé) at delivery month
@@ -184,6 +237,14 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
           const delivKey = keyFromIso(ro.dateLivraison);
           const key = delivKey && delivKey > currentKey ? delivKey : nextKey;
           bump(expected, season, key, outstanding);
+          pushCell(expectedDetails, season, key, {
+            orderId: ro.id,
+            ref: ro.reference ?? ro.id,
+            party: ro.fournisseur ?? "",
+            amount: outstanding,
+            kind: "attendu",
+            label: "Solde restant (facturé − payé)",
+          });
         }
       }
     } else {
@@ -241,6 +302,14 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
             if (dueKey && dueKey >= currentKey) {
               // due this month or later → shown as "attendu" in its due month
               bump(expected, season, dueKey, outstanding);
+              pushCell(expectedDetails, season, dueKey, {
+                orderId: ro.id,
+                ref: ro.reference ?? ro.id,
+                party: ro.fournisseur ?? "",
+                amount: outstanding,
+                kind: "attendu",
+                label: f.docNo ? `Facture ${f.docNo}` : "Facture",
+              });
             } else {
               // échéance d'un mois déjà passé (ou absente) → en retard
               overdueBySeason.set(season, (overdueBySeason.get(season) ?? 0) + outstanding);
@@ -295,10 +364,18 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
     const overdueOf = (season: string): number => overdueBySeason.get(season) ?? 0;
     const hasOverdue = [...overdueBySeason.values()].some((v) => Math.abs(v) > 0.01);
 
-    return { months, seasons, cell, expectedAt, overdueOf, hasOverdue, overdueItems };
+    // Orders behind a cell's amount: real payments up to the current month, expected
+    // after — and BOTH on the current month (it shows payé + « +attendu »).
+    const cellItems = (season: string, key: string): CellItem[] => [
+      ...(key <= currentKey ? (actualDetails.get(season)?.get(key) ?? []) : []),
+      ...(key >= currentKey ? (expectedDetails.get(season)?.get(key) ?? []) : []),
+    ];
+
+    return { months, seasons, cell, expectedAt, overdueOf, hasOverdue, overdueItems, cellItems };
   }, [orders, rawOrders, rawSuppliers, currentKey, nextKey, isSupplier]);
 
-  const { months, seasons, cell, expectedAt, overdueOf, hasOverdue, overdueItems } = model;
+  const { months, seasons, cell, expectedAt, overdueOf, hasOverdue, overdueItems, cellItems } =
+    model;
 
   // The current month contributes both what's been received (cell) and what's still
   // expected this month (expectedAt) — count both so totals stay whole.
@@ -330,6 +407,37 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
   const todayMs = now.getTime();
   const daysLate = (iso?: string) =>
     iso ? Math.floor((todayMs - new Date(iso).getTime()) / 86_400_000) : null;
+
+  // Click-through on any month cell / total: which orders make up that amount.
+  const [cellDetail, setCellDetail] = useState<{ title: string; items: CellItem[] } | null>(null);
+  const openCell = (title: string, items: CellItem[]) => {
+    const meaningful = items.filter((i) => Math.abs(i.amount) > 0.01);
+    if (meaningful.length) setCellDetail({ title, items: meaningful });
+  };
+  const seasonLabelFor = (s: string) => (s === "" ? "Sans saison" : s);
+  const openMonthCell = (season: string, key: string) =>
+    openCell(`${seasonLabelFor(season)} · ${monthLabelFull(key)}`, cellItems(season, key));
+  const openMonthTotal = (key: string) =>
+    openCell(
+      monthLabelFull(key),
+      seasons.flatMap((s) => cellItems(s, key)),
+    );
+  const openSeasonTotal = (season: string) =>
+    openCell(`${seasonLabelFor(season)} — toutes périodes`, [
+      ...months.flatMap((k) => cellItems(season, k)),
+      ...overdueItems
+        .filter((it) => it.season === season)
+        .map(
+          (it): CellItem => ({
+            orderId: it.orderId,
+            ref: it.ref,
+            party: it.client,
+            amount: it.amount,
+            kind: "attendu",
+            label: it.docNo ? `Facture ${it.docNo} (en retard)` : "En retard",
+          }),
+        ),
+    ]);
 
   // Synced scrollbar shown ABOVE the table (mirrors the table's own horizontal scroll).
   const topRef = useRef<HTMLDivElement>(null);
@@ -460,13 +568,17 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
                   const isFuture = key > currentKey;
                   // current month also surfaces what's still expected this month (light blue)
                   const exp = isCurrent ? expectedAt(season, key) : 0;
+                  const hasVal = v > 0.01 || exp > 0.01;
                   return (
                     <td
                       key={key}
+                      onClick={() => hasVal && openMonthCell(season, key)}
+                      title={hasVal ? "Voir les commandes de ce montant" : undefined}
                       className={cn(
                         "px-3 py-3 text-right num tabular-nums",
                         isCurrent && "bg-accent/5",
                         isFuture ? "text-accent/90 italic" : "text-foreground",
+                        hasVal && "cursor-pointer hover:bg-surface-2",
                       )}
                     >
                       {isCurrent ? (
@@ -492,7 +604,16 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
                     </td>
                   );
                 })}
-                <td className="px-4 py-3 text-right font-serif text-base num border-l border-border">
+                <td
+                  onClick={() => rowTotal(season) > 0.01 && openSeasonTotal(season)}
+                  title={
+                    rowTotal(season) > 0.01 ? "Voir toutes les commandes de la saison" : undefined
+                  }
+                  className={cn(
+                    "px-4 py-3 text-right font-serif text-base num border-l border-border",
+                    rowTotal(season) > 0.01 && "cursor-pointer hover:bg-surface-2",
+                  )}
+                >
                   {shortMoney(rowTotal(season))}
                 </td>
               </tr>
@@ -536,10 +657,13 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
                 {months.map((key) => (
                   <td
                     key={key}
+                    onClick={() => colTotal(key) > 0.01 && openMonthTotal(key)}
+                    title={colTotal(key) > 0.01 ? "Voir toutes les commandes du mois" : undefined}
                     className={cn(
                       "px-3 py-3 text-right font-serif text-base num",
                       key === currentKey && "bg-accent/5",
                       key > currentKey && "text-accent/90",
+                      colTotal(key) > 0.01 && "cursor-pointer hover:bg-surface-2",
                     )}
                   >
                     {key === currentKey ? (
@@ -656,6 +780,84 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
               </tbody>
             </table>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Click-through detail for any month cell / total */}
+      <Dialog open={cellDetail != null} onOpenChange={(v) => !v && setCellDetail(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{cellDetail?.title}</DialogTitle>
+          </DialogHeader>
+          {cellDetail && (
+            <>
+              <div className="text-sm text-muted-foreground -mt-1">
+                {cellDetail.items.length} ligne{cellDetail.items.length > 1 ? "s" : ""} · total{" "}
+                <span className="font-medium num text-foreground">
+                  {shortMoney(cellDetail.items.reduce((a, it) => a + it.amount, 0))}
+                </span>
+              </div>
+              <div className="max-h-[60vh] overflow-y-auto -mx-2">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-[10px] uppercase tracking-widest text-muted-foreground border-b border-border">
+                      <th className="text-left font-medium px-2 py-2">
+                        Commande · {isSupplier ? "Fournisseur" : "Client"}
+                      </th>
+                      <th className="text-left font-medium px-2 py-2 whitespace-nowrap">Nature</th>
+                      <th className="text-right font-medium px-2 py-2 whitespace-nowrap">
+                        Montant
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {[...cellDetail.items]
+                      .sort((a, b) => b.amount - a.amount)
+                      .map((it, i) => (
+                        <tr
+                          key={`${it.orderId}-${i}`}
+                          onClick={() => {
+                            setCellDetail(null);
+                            navigate(
+                              isSupplier
+                                ? { to: "/orders/$id", params: { id: it.orderId } }
+                                : { to: "/customer-orders/$id", params: { id: it.orderId } },
+                            );
+                          }}
+                          className="cursor-pointer hover:bg-surface-2 transition-colors"
+                        >
+                          <td className="px-2 py-2.5">
+                            <div className="font-medium">{it.ref}</div>
+                            <div className="text-xs text-muted-foreground truncate max-w-[280px]">
+                              {it.party}
+                            </div>
+                          </td>
+                          <td className="px-2 py-2.5 whitespace-nowrap">
+                            <span
+                              className={cn(
+                                "text-[10px] uppercase tracking-widest mr-1.5",
+                                it.kind === "réel" ? "text-foreground/60" : "text-accent",
+                              )}
+                            >
+                              {it.kind}
+                            </span>
+                            <span className="text-xs text-muted-foreground">{it.label}</span>
+                          </td>
+                          <td
+                            className={cn(
+                              "px-2 py-2.5 text-right font-serif text-base num",
+                              it.kind === "attendu" && "text-accent/90",
+                            )}
+                          >
+                            {shortMoney(it.amount)}
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
         </DialogContent>
       </Dialog>
     </div>
