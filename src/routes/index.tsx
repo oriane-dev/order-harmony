@@ -41,7 +41,6 @@ function Home() {
             </div>
             <h1 className="font-serif text-4xl mt-1">Où en est chaque commande, à l'instant.</h1>
           </div>
-          <div className="text-sm text-muted-foreground">T2 · 2026</div>
         </div>
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

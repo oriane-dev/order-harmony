@@ -3,6 +3,7 @@ import { useSuspenseQuery } from "@tanstack/react-query";
 import { AppShell } from "@/components/app-shell";
 import { ReconciliationFlow } from "@/components/reconciliation-flow";
 import { OrderLink } from "@/components/order-link";
+import { ArrowUpRight } from "lucide-react";
 import { ordersQueryOptions, customerOrdersQueryOptions } from "@/lib/data";
 import { StatusChip } from "@/components/status-chip";
 import type { Order } from "@/lib/ledger-types";
@@ -57,6 +58,12 @@ function FlowSection({
                   <span className="text-sm text-muted-foreground">· {o.party.name}</span>
                 </div>
               </div>
+              <OrderLink
+                order={o}
+                className="text-sm text-accent hover:underline inline-flex items-center gap-1 shrink-0"
+              >
+                Voir la commande <ArrowUpRight className="size-3.5" />
+              </OrderLink>
             </div>
             <ReconciliationFlow docs={o.docs} />
           </section>
