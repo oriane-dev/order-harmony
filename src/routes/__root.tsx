@@ -84,14 +84,14 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Ledger — Rapprochement des commandes et paiements" },
+      { title: "Cash Flow Management — Rapprochement des commandes et paiements" },
       {
         name: "description",
         content:
           "Rapprochement financier interne pour les commandes fournisseurs et clients — la source de vérité unique pour chaque bon de commande, livraison, facture et paiement.",
       },
-      { name: "author", content: "Ledger" },
-      { property: "og:title", content: "Ledger — Rapprochement des commandes et paiements" },
+      { name: "author", content: "Cash Flow Management" },
+      { property: "og:title", content: "Cash Flow Management — Rapprochement des commandes et paiements" },
       {
         property: "og:description",
         content:

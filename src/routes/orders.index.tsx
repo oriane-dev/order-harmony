@@ -4,7 +4,7 @@ import { OrdersListPage } from "@/components/orders-list-page";
 export const Route = createFileRoute("/orders/")({
   head: () => ({
     meta: [
-      { title: "Commandes fournisseurs · Ledger" },
+      { title: "Commandes fournisseurs · Cash Flow Management" },
       {
         name: "description",
         content:

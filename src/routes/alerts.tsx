@@ -10,7 +10,7 @@ import { AlertTriangle } from "lucide-react";
 export const Route = createFileRoute("/alerts")({
   head: () => ({
     meta: [
-      { title: "Alertes · Ledger" },
+      { title: "Alertes · Cash Flow Management" },
       {
         name: "description",
         content:

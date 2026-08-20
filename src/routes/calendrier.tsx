@@ -8,7 +8,7 @@ import type { Entity } from "@/lib/entities";
 export const Route = createFileRoute("/calendrier")({
   head: () => ({
     meta: [
-      { title: "Calendrier des paiements · Ledger" },
+      { title: "Calendrier des paiements · Cash Flow Management" },
       {
         name: "description",
         content:

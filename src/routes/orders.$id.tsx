@@ -14,7 +14,7 @@ export const Route = createFileRoute("/orders/$id")({
   },
   head: ({ loaderData }) => ({
     meta: [
-      { title: loaderData ? `${loaderData.order.number} · Ledger` : "Commande · Ledger" },
+      { title: loaderData ? `${loaderData.order.number} · Cash Flow Management` : "Commande · Cash Flow Management" },
       {
         name: "description",
         content: loaderData

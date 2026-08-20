@@ -11,7 +11,7 @@ import { shortMoney, fmtDate } from "@/lib/format";
 export const Route = createFileRoute("/echeances")({
   head: () => ({
     meta: [
-      { title: "Échéances · Ledger" },
+      { title: "Échéances · Cash Flow Management" },
       {
         name: "description",
         content:

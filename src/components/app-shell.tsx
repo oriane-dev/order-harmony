@@ -102,12 +102,12 @@ export function AppShell({ children }: { children: ReactNode }) {
       <aside className="w-60 shrink-0 border-r border-sidebar-border bg-sidebar sticky top-0 h-screen flex flex-col">
         <div className="px-5 pt-6 pb-8">
           <Link to="/" className="flex items-center gap-2">
-            <div className="size-7 rounded-md bg-primary flex items-center justify-center">
-              <span className="font-serif text-primary-foreground text-lg leading-none">L</span>
+            <div className="size-7 shrink-0 rounded-md bg-primary flex items-center justify-center">
+              <span className="font-serif text-primary-foreground text-lg leading-none">C</span>
             </div>
             <div>
-              <div className="font-serif text-lg leading-none">Ledger</div>
-              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+              <div className="font-serif text-base leading-tight">Cash Flow Management</div>
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground mt-0.5">
                 Rapprochement
               </div>
             </div>

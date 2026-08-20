@@ -12,7 +12,7 @@ import { ArrowUpRight, AlertTriangle } from "lucide-react";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Tableau de bord · Ledger" },
+      { title: "Tableau de bord · Cash Flow Management" },
       {
         name: "description",
         content:

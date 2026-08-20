@@ -11,7 +11,7 @@ import type { Order } from "@/lib/ledger-types";
 export const Route = createFileRoute("/reconciliation")({
   head: () => ({
     meta: [
-      { title: "Rapprochement · Ledger" },
+      { title: "Rapprochement · Cash Flow Management" },
       {
         name: "description",
         content:
