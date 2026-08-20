@@ -111,11 +111,17 @@ export function summary(orders: Order[]) {
   const receivable = orders.filter((o) => o.side === "receivable");
   const sum = (arr: Order[], key: keyof Order["totals"]) =>
     arr.reduce((a, o) => a + o.totals[key], 0);
+  // "Restant dû" is floored per order at 0 — a supplier prepaid via a deposit
+  // (paid before its invoice is entered) must not net out against amounts still
+  // owed on other orders, which would show a confusing negative. Matches the
+  // Échéances page so the same label shows the same number everywhere.
+  const outstanding = (arr: Order[]) =>
+    arr.reduce((a, o) => a + Math.max(0, o.totals.invoiced - o.totals.paid), 0);
   return {
-    outstandingPayable: sum(payable, "invoiced") - sum(payable, "paid"),
-    outstandingReceivable: sum(receivable, "invoiced") - sum(receivable, "paid"),
+    outstandingPayable: outstanding(payable),
+    outstandingReceivable: outstanding(receivable),
     cashPaid: sum(payable, "paid"),
-    cashExpected: sum(receivable, "invoiced") - sum(receivable, "paid"),
+    cashExpected: outstanding(receivable),
     ordersInProgress: orders.filter((o) => o.status !== "closed").length,
     awaitingInvoice: orders.filter((o) => o.totals.delivered > o.totals.invoiced).length,
     awaitingPayment: orders.filter((o) => o.totals.invoiced > o.totals.paid).length,

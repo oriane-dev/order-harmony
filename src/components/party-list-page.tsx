@@ -108,8 +108,10 @@ export function PartyListPage({ entity }: { entity: Entity }) {
             const partyOrders = orders.filter(
               (o) => o.party.name.trim().toLowerCase() === name.trim().toLowerCase(),
             );
+            // floored per order at 0 — see summary() in ledger-types: a prepaid
+            // deposit must not net into a negative "restant dû"
             const outstanding = partyOrders.reduce(
-              (a, o) => a + (o.totals.invoiced - o.totals.paid),
+              (a, o) => a + Math.max(0, o.totals.invoiced - o.totals.paid),
               0,
             );
             return (

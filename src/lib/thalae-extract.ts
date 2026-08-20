@@ -3,11 +3,21 @@
 // logic, clean TypeScript, no Preact. Kept close to the original line-by-line so it's
 // easy to diff against the source if Thalae itself changes.
 
-import * as pdfjsLib from "pdfjs-dist";
 import pdfWorkerSrc from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import type { RawConditionPaiement } from "@/lib/thalae-types";
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
+// pdf.js references browser-only globals (DOMMatrix) at import time, which crashes
+// server-side rendering. Load it lazily — only when a PDF is actually parsed, which
+// only ever happens client-side — so every page can still be server-rendered.
+let _pdfjs: typeof import("pdfjs-dist") | null = null;
+async function getPdfjs() {
+  if (!_pdfjs) {
+    const lib = await import("pdfjs-dist");
+    lib.GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
+    _pdfjs = lib;
+  }
+  return _pdfjs;
+}
 
 function uid(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2);
@@ -60,6 +70,7 @@ function cleanPdfText(text: string): string {
 
 export async function extractPdfText(file: File): Promise<string> {
   const buf = await file.arrayBuffer();
+  const pdfjsLib = await getPdfjs();
   const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
   let text = "";
   for (let i = 1; i <= Math.min(pdf.numPages, 8); i++) {
@@ -86,6 +97,7 @@ export async function extractPaymentFromPdf(
 ): Promise<ExtractedPayment | null> {
   try {
     const ab = await file.arrayBuffer();
+    const pdfjsLib = await getPdfjs();
     const pdf = await pdfjsLib.getDocument({ data: ab }).promise;
     let text = "";
     for (let i = 1; i <= pdf.numPages; i++) {

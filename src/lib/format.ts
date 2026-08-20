@@ -14,7 +14,7 @@ export function shortMoney(amount: number, currency: string = "EUR") {
       ? `${(a / 1_000_000).toFixed(1)}M`
       : a >= 1_000
         ? `${(a / 1_000).toFixed(0)}K`
-        : `${a}`;
+        : `${Math.round(a)}`;
   const sym = currency === "EUR" ? "€" : currency === "GBP" ? "£" : currency === "CNY" ? "¥" : "$";
   return `${sign}${sym}${s}`;
 }
