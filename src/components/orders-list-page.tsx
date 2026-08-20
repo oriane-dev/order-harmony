@@ -1,6 +1,6 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import { AppShell } from "@/components/app-shell";
 import { StatusChip } from "@/components/status-chip";
 import { OrderForm } from "@/components/order-form";
@@ -33,7 +33,16 @@ import { deleteOrder } from "@/lib/thalae-mutations";
 import { exportBackup, exportOrdersExcel, importBackup } from "@/lib/thalae-export";
 import { shortMoney, fmtDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { Plus, Upload, Trash2, MoreHorizontal, X } from "lucide-react";
+import {
+  Plus,
+  Upload,
+  Trash2,
+  MoreHorizontal,
+  X,
+  ChevronUp,
+  ChevronDown,
+  ChevronsUpDown,
+} from "lucide-react";
 import type { OrderStatus } from "@/lib/ledger-types";
 import { seasonOf, seasonSortKey } from "@/lib/season";
 import { ENTITIES, type Entity } from "@/lib/entities";
@@ -45,6 +54,27 @@ const STATUS_OPTIONS: { value: OrderStatus; label: string }[] = [
   { value: "to_settle", label: "À solder" },
   { value: "closed", label: "Clôturée" },
 ];
+
+type SortKey =
+  | "ref"
+  | "produit"
+  | "saison"
+  | "statut"
+  | "progress"
+  | "ordered"
+  | "invoiced"
+  | "paid"
+  | "remaining"
+  | "livraison";
+
+// order used when sorting by the "Statut" column
+const STATUS_RANK: Record<OrderStatus, number> = {
+  confirmed: 0,
+  partially_shipped: 1,
+  partially_invoiced: 2,
+  to_settle: 3,
+  closed: 4,
+};
 
 export function OrdersListPage({ entity }: { entity: Entity }) {
   const cfg = ENTITIES[entity];
@@ -66,6 +96,8 @@ export function OrdersListPage({ entity }: { entity: Entity }) {
   const [partyFilter, setPartyFilter] = useState<string>("all");
   const [seasonFilter, setSeasonFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const produitById = useMemo(() => new Map(rawOrders.map((o) => [o.id, o.produit])), [rawOrders]);
   const seasonById = useMemo(
     () => new Map(rawOrders.map((o) => [o.id, seasonOf(o.notes)])),
@@ -100,8 +132,92 @@ export function OrdersListPage({ entity }: { entity: Entity }) {
     });
   }, [orders, statusFilter, partyFilter, seasonFilter, search, produitById, seasonById]);
 
+  // value used to sort a row for the active column — returns null for empty
+  // cells so they always land at the bottom, whatever the direction
+  const sortValue = (o: (typeof list)[number], key: SortKey): string | number | null => {
+    switch (key) {
+      case "ref":
+        return o.number.toLowerCase();
+      case "produit":
+        return (produitById.get(o.id) || "").toLowerCase() || null;
+      case "saison": {
+        const s = seasonById.get(o.id) || "";
+        return s ? seasonSortKey(s) : null;
+      }
+      case "statut":
+        return STATUS_RANK[o.status] ?? 99;
+      case "progress":
+        return o.progress;
+      case "ordered":
+        return o.totals.ordered;
+      case "invoiced":
+        return o.totals.invoiced;
+      case "paid":
+        return o.totals.paid;
+      case "remaining":
+        return Math.max(0, o.totals.invoiced - o.totals.paid);
+      case "livraison":
+        return o.expectedAt ? new Date(o.expectedAt).getTime() : null;
+    }
+  };
+
+  const sorted = useMemo(() => {
+    if (!sortKey) return list;
+    const dir = sortDir === "asc" ? 1 : -1;
+    return [...list].sort((a, b) => {
+      const va = sortValue(a, sortKey);
+      const vb = sortValue(b, sortKey);
+      if (va === null && vb === null) return 0;
+      if (va === null) return 1; // empties always last
+      if (vb === null) return -1;
+      if (typeof va === "number" && typeof vb === "number") return (va - vb) * dir;
+      return String(va).localeCompare(String(vb)) * dir;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [list, sortKey, sortDir, produitById, seasonById]);
+
+  const toggleSort = (key: SortKey) => {
+    if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  };
+
   const hasActiveFilters =
     statusFilter !== "all" || partyFilter !== "all" || seasonFilter !== "all" || search !== "";
+
+  const sortHead = (
+    label: ReactNode,
+    key: SortKey,
+    opts: { align?: "left" | "right"; className?: string } = {},
+  ) => {
+    const { align = "left", className } = opts;
+    const active = sortKey === key;
+    const Icon = active ? (sortDir === "asc" ? ChevronUp : ChevronDown) : ChevronsUpDown;
+    return (
+      <th
+        className={cn(
+          "font-medium px-3 py-3 whitespace-nowrap",
+          align === "right" ? "text-right" : "text-left",
+          className,
+        )}
+      >
+        <button
+          type="button"
+          onClick={() => toggleSort(key)}
+          className={cn(
+            "inline-flex items-center gap-1 hover:text-foreground transition-colors",
+            align === "right" && "flex-row-reverse",
+            active && "text-foreground",
+          )}
+        >
+          <span>{label}</span>
+          <Icon className={cn("size-3 shrink-0", !active && "opacity-40")} />
+        </button>
+      </th>
+    );
+  };
 
   const [formOpen, setFormOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -255,35 +371,25 @@ export function OrdersListPage({ entity }: { entity: Entity }) {
           <table className="w-full text-sm border-collapse">
             <thead>
               <tr className="border-b border-border text-[10px] uppercase tracking-widest text-muted-foreground">
-                <th className="text-left font-medium px-5 py-3 whitespace-nowrap">
-                  Référence · {cfg.party}
-                </th>
-                <th className="text-left font-medium px-3 py-3 whitespace-nowrap">Produit</th>
-                <th className="text-left font-medium px-3 py-3 whitespace-nowrap">Saison</th>
-                <th className="text-left font-medium px-3 py-3 whitespace-nowrap">Statut</th>
-                <th className="text-left font-medium px-3 py-3 whitespace-nowrap w-36">
-                  Avancement
-                </th>
-                <th className="text-right font-medium px-3 py-3 whitespace-nowrap">
-                  Montant commandé
-                </th>
-                <th className="text-right font-medium px-3 py-3 whitespace-nowrap">
-                  Montant facturé
-                </th>
-                <th className="text-right font-medium px-3 py-3 whitespace-nowrap">
-                  {isSupplier ? "Montant payé" : "Montant encaissé"}
-                </th>
-                <th className="text-right font-medium px-3 py-3 whitespace-nowrap">
-                  {isSupplier ? "Reste à payer" : "Reste à encaisser"}
-                </th>
-                <th className="text-right font-medium px-3 py-3 whitespace-nowrap">
-                  Livraison prévue
-                </th>
+                {sortHead(`Référence · ${cfg.party}`, "ref", { className: "px-5" })}
+                {sortHead("Produit", "produit")}
+                {sortHead("Saison", "saison")}
+                {sortHead("Statut", "statut")}
+                {sortHead("Avancement", "progress", { className: "w-36" })}
+                {sortHead("Montant commandé", "ordered", { align: "right" })}
+                {sortHead("Montant facturé", "invoiced", { align: "right" })}
+                {sortHead(isSupplier ? "Montant payé" : "Montant encaissé", "paid", {
+                  align: "right",
+                })}
+                {sortHead(isSupplier ? "Reste à payer" : "Reste à encaisser", "remaining", {
+                  align: "right",
+                })}
+                {sortHead("Livraison prévue", "livraison", { align: "right" })}
                 <th className="px-3 py-3 w-10" />
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {list.map((o) => {
+              {sorted.map((o) => {
                 const remaining = Math.max(0, o.totals.invoiced - o.totals.paid);
                 return (
                   <tr
@@ -353,7 +459,7 @@ export function OrdersListPage({ entity }: { entity: Entity }) {
                   </tr>
                 );
               })}
-              {list.length === 0 && (
+              {sorted.length === 0 && (
                 <tr>
                   <td colSpan={11} className="px-5 py-8 text-center text-sm text-muted-foreground">
                     Aucune commande.
