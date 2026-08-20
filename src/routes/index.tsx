@@ -117,17 +117,6 @@ function Home() {
 
           <div className="space-y-6">
             <div className="card-elev p-6">
-              <div className="text-xs uppercase tracking-widest text-muted-foreground">
-                En un coup d'œil
-              </div>
-              <ul className="mt-4 space-y-3 text-sm">
-                <Row label="Commandes en cours" value={s.ordersInProgress} />
-                <Row label="En attente de facture" value={s.awaitingInvoice} />
-                <Row label="En attente de paiement" value={s.awaitingPayment} />
-              </ul>
-            </div>
-
-            <div className="card-elev p-6">
               <div className="flex items-center justify-between">
                 <div className="text-xs uppercase tracking-widest text-muted-foreground">
                   Alertes
@@ -137,7 +126,7 @@ function Home() {
                 </Link>
               </div>
               <div className="mt-4 space-y-3">
-                {alerts.slice(0, 3).map((a) => {
+                {alerts.slice(0, 8).map((a) => {
                   const ao = orders.find((o) => o.id === a.orderId);
                   return (
                     <OrderLink
@@ -192,16 +181,5 @@ function Home() {
         </div>
       </div>
     </AppShell>
-  );
-}
-
-function Row({ label, value, tone }: { label: string; value: number; tone?: "danger" }) {
-  return (
-    <li className="flex items-center justify-between">
-      <span className="text-muted-foreground">{label}</span>
-      <span className={`font-serif text-xl num ${tone === "danger" ? "text-destructive" : ""}`}>
-        {value}
-      </span>
-    </li>
   );
 }
