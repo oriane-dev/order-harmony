@@ -414,14 +414,13 @@ export function rawOrderToLedgerOrder(
   const invoicePaid = invoiced > 0 && paid >= invoiced * 0.99;
   // total facturé au niveau du montant commandé ?
   const invoicedMatchesOrder = ordered > 0 && invoiced >= ordered * 0.99;
-  // "Erreur" (fournisseurs, hors saisons en cours) : pro forma renseignée + un
-  // paiement rattaché à une livraison mais aucune facture émise.
+  // "Erreur" (fournisseurs, hors saisons en cours) : une pro forma est renseignée,
+  // un paiement a été fait (acompte sur la pro forma, ou paiement sur une livraison)
+  // mais AUCUNE facture n'est enregistrée. Normal pour les saisons en cours (livraison
+  // à venir) ; sur une saison ancienne, c'est une facture manquante.
+  const paidWithoutInvoice = !hasInvoice && (depositPaid || paymentWithoutInvoice);
   const isDocflowError =
-    side === "payable" &&
-    !CURRENT_SEASONS.has(season) &&
-    hasProforma &&
-    !hasInvoice &&
-    paymentWithoutInvoice;
+    side === "payable" && !CURRENT_SEASONS.has(season) && hasProforma && paidWithoutInvoice;
 
   let status: Order["status"];
   if (row.cloture) {
@@ -465,11 +464,11 @@ export function rawOrderToLedgerOrder(
       id: `a:${row.id}:docflow_error`,
       severity: "high",
       kind: "payment_without_invoice",
-      title: "Erreur — facture manquante sur une livraison payée",
+      title: "Erreur — facture manquante",
       detail:
-        `La commande ${row.reference ?? row.id} a une pro forma et un paiement rattaché à une ` +
-        `livraison, mais aucune facture n'est enregistrée sur cette livraison. ` +
-        `Il manque la facture correspondante (montant payé : ${paid.toFixed(2)} ${currency}).`,
+        `La commande ${row.reference ?? row.id} a une pro forma et un paiement enregistré ` +
+        `(${paid.toFixed(2)} ${currency}), mais aucune facture n'est rattachée. ` +
+        `Il manque la facture correspondant à ce paiement.`,
       orderId: row.id,
     });
   }

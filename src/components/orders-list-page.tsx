@@ -62,7 +62,6 @@ type SortKey =
   | "produit"
   | "saison"
   | "statut"
-  | "progress"
   | "ordered"
   | "invoiced"
   | "paid"
@@ -150,8 +149,6 @@ export function OrdersListPage({ entity }: { entity: Entity }) {
       }
       case "statut":
         return STATUS_RANK[o.status] ?? 99;
-      case "progress":
-        return o.progress;
       case "ordered":
         return o.totals.ordered;
       case "invoiced":
@@ -379,7 +376,6 @@ export function OrdersListPage({ entity }: { entity: Entity }) {
                 {sortHead("Produit", "produit")}
                 {sortHead("Saison", "saison")}
                 {sortHead("Statut", "statut")}
-                {sortHead("Avancement", "progress", { className: "w-36" })}
                 {sortHead("Montant commandé", "ordered", { align: "right" })}
                 {sortHead("Montant facturé", "invoiced", { align: "right" })}
                 {sortHead(isSupplier ? "Montant payé" : "Montant encaissé", "paid", {
@@ -415,17 +411,6 @@ export function OrdersListPage({ entity }: { entity: Entity }) {
                     </td>
                     <td className="px-3 py-3.5">
                       <StatusChip status={o.status} />
-                    </td>
-                    <td className="px-3 py-3.5">
-                      <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-accent"
-                          style={{ width: `${Math.round(o.progress * 100)}%` }}
-                        />
-                      </div>
-                      <div className="text-[10px] text-muted-foreground mt-1 num">
-                        {Math.round(o.progress * 100)} %
-                      </div>
                     </td>
                     <td className="px-3 py-3.5 text-right font-serif text-base num">
                       {shortMoney(o.totals.ordered, o.currency)}
@@ -465,7 +450,7 @@ export function OrdersListPage({ entity }: { entity: Entity }) {
               })}
               {sorted.length === 0 && (
                 <tr>
-                  <td colSpan={11} className="px-5 py-8 text-center text-sm text-muted-foreground">
+                  <td colSpan={10} className="px-5 py-8 text-center text-sm text-muted-foreground">
                     Aucune commande.
                   </td>
                 </tr>

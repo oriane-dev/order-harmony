@@ -90,22 +90,11 @@ function Home() {
                       {o.party.city ? ` · ${o.party.city}` : ""}
                     </div>
                   </div>
-                  <div className="col-span-2 text-xs text-muted-foreground uppercase">
+                  <div className="col-span-3 text-xs text-muted-foreground uppercase">
                     {o.side === "payable" ? "Fournisseur" : "Client"}
                   </div>
-                  <div className="col-span-2">
+                  <div className="col-span-3">
                     <StatusChip status={o.status} />
-                  </div>
-                  <div className="col-span-2">
-                    <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-accent"
-                        style={{ width: `${Math.round(o.progress * 100)}%` }}
-                      />
-                    </div>
-                    <div className="text-[10px] text-muted-foreground mt-1 num">
-                      {Math.round(o.progress * 100)}%
-                    </div>
                   </div>
                   <div className="col-span-2 text-right font-serif text-lg num">
                     {shortMoney(o.totals.ordered, o.currency)}

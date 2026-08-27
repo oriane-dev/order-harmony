@@ -19,7 +19,7 @@ import {
 } from "@/lib/data";
 import { severityLabel } from "@/lib/ledger-types";
 import { deleteOrder, saveOrder } from "@/lib/thalae-mutations";
-import { shortMoney, fmtDate, pct } from "@/lib/format";
+import { shortMoney, fmtDate } from "@/lib/format";
 import { ENTITIES, type Entity } from "@/lib/entities";
 import {
   AlertTriangle,
@@ -118,17 +118,6 @@ export function OrderDetailContent({ order: initialOrder, entity }: { order: Ord
                   Livraison prévue
                 </div>
                 <div className="mt-0.5 num">{fmtDate(order.expectedAt)}</div>
-              </div>
-              <div className="w-40">
-                <div className="text-xs uppercase tracking-wider text-muted-foreground mb-1.5">
-                  Avancement · {pct(order.progress)}
-                </div>
-                <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-accent transition-all"
-                    style={{ width: `${Math.round(order.progress * 100)}%` }}
-                  />
-                </div>
               </div>
               <div className="flex items-center gap-2">
                 {rawOrder &&
