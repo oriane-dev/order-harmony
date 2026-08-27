@@ -414,13 +414,16 @@ export function rawOrderToLedgerOrder(
   const invoicePaid = invoiced > 0 && paid >= invoiced * 0.99;
   // total facturé au niveau du montant commandé ?
   const invoicedMatchesOrder = ordered > 0 && invoiced >= ordered * 0.99;
-  // "Erreur" (fournisseurs, hors saisons en cours) : une pro forma est renseignée,
-  // un paiement a été fait (acompte sur la pro forma, ou paiement sur une livraison)
-  // mais AUCUNE facture n'est enregistrée. Normal pour les saisons en cours (livraison
-  // à venir) ; sur une saison ancienne, c'est une facture manquante.
-  const paidWithoutInvoice = !hasInvoice && (depositPaid || paymentWithoutInvoice);
+  // "Erreur" (fournisseurs, hors saisons en cours) : une pro forma est renseignée et
+  // un paiement est rattaché à une LIVRAISON mais aucune facture n'y est enregistrée.
+  // Un paiement rattaché à la pro forma (un acompte) est légitime → "Deposit payé",
+  // ce n'est PAS une erreur.
   const isDocflowError =
-    side === "payable" && !CURRENT_SEASONS.has(season) && hasProforma && paidWithoutInvoice;
+    side === "payable" &&
+    !CURRENT_SEASONS.has(season) &&
+    hasProforma &&
+    !hasInvoice &&
+    paymentWithoutInvoice;
 
   let status: Order["status"];
   if (row.cloture) {
@@ -464,11 +467,11 @@ export function rawOrderToLedgerOrder(
       id: `a:${row.id}:docflow_error`,
       severity: "high",
       kind: "payment_without_invoice",
-      title: "Erreur — facture manquante",
+      title: "Erreur — facture manquante sur une livraison payée",
       detail:
-        `La commande ${row.reference ?? row.id} a une pro forma et un paiement enregistré ` +
-        `(${paid.toFixed(2)} ${currency}), mais aucune facture n'est rattachée. ` +
-        `Il manque la facture correspondant à ce paiement.`,
+        `La commande ${row.reference ?? row.id} a un paiement rattaché à une livraison ` +
+        `(${paid.toFixed(2)} ${currency}) mais aucune facture n'y est enregistrée. ` +
+        `Il manque la facture correspondant à cette livraison.`,
       orderId: row.id,
     });
   }
