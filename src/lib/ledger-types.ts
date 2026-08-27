@@ -14,11 +14,13 @@ export type DocKind =
   | "transfer";
 
 export type OrderStatus =
-  | "confirmed" // aucun document ajouté
-  | "partially_shipped" // packing list(s) en cours, montant expédié < commande
-  | "partially_invoiced" // packing lists au complet, factures manquantes
-  | "to_settle" // tout facturé, paiements manquants
-  | "closed"; // tout payé
+  | "confirmed" // aucun document (ni pro forma ni facture)
+  | "deposit_to_pay" // pro forma ajoutée, acompte pas encore réglé (fournisseurs)
+  | "deposit_paid" // pro forma + acompte réglé, aucune facture (fournisseurs)
+  | "invoice_to_pay" // une facture est présente mais pas entièrement payée
+  | "partially_invoiced" // facture payée mais le total facturé ≠ montant commandé
+  | "closed" // tout facturé au bon montant et payé
+  | "error"; // anomalie docFlow (fournisseurs) : paiement de livraison sans facture
 
 export interface Party {
   id: string;

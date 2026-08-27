@@ -7,18 +7,32 @@ const map: Record<string, { label: string; cls: string; dot: string }> = {
     cls: "bg-muted text-muted-foreground",
     dot: "bg-muted-foreground",
   },
-  partially_shipped: {
-    label: "Expédiée partiellement",
+  deposit_to_pay: {
+    label: "Deposit à régler",
+    cls: "bg-info/10 text-info",
+    dot: "bg-info",
+  },
+  deposit_paid: {
+    label: "Deposit payé",
+    cls: "bg-info/15 text-info",
+    dot: "bg-info",
+  },
+  invoice_to_pay: {
+    label: "Facture à payer",
     cls: "bg-warning/15 text-warning-foreground",
     dot: "bg-warning",
   },
   partially_invoiced: {
-    label: "Facturée partiellement",
+    label: "Facturé partiellement",
     cls: "bg-warning/15 text-warning-foreground",
     dot: "bg-warning",
   },
-  to_settle: { label: "À solder", cls: "bg-info/10 text-info", dot: "bg-info" },
-  closed: { label: "Clôturée", cls: "bg-success/15 text-success", dot: "bg-success" },
+  closed: { label: "Clôturé", cls: "bg-success/15 text-success", dot: "bg-success" },
+  error: {
+    label: "Erreur",
+    cls: "bg-destructive/10 text-destructive",
+    dot: "bg-destructive",
+  },
   // document-level statuses (used on individual docs in the reconciliation flow)
   issued: { label: "Émis", cls: "bg-info/10 text-info", dot: "bg-info" },
   partially_paid: {

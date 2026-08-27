@@ -4,6 +4,12 @@
 
 import type { Alert, Currency, DocRef, Order, Party, TimelineEvent } from "@/lib/ledger-types";
 import type { RawFacture, RawOrder, RawPackingList, RawPdf } from "@/lib/thalae-types";
+import { seasonOf } from "@/lib/season";
+
+// Saisons "en cours" : un paiement de livraison sans facture y est normal (acompte
+// versé avant expédition, facture pas encore émise) — on ne le signale donc PAS en
+// erreur. Pour les saisons plus anciennes, ce cas est une anomalie de saisie.
+const CURRENT_SEASONS = new Set(["AW26", "PS27", "SS27"]);
 
 export type { RawOrder, RawSupplier } from "@/lib/thalae-types";
 
@@ -109,6 +115,12 @@ export function rawOrderToLedgerOrder(
   let delivered = 0;
   let paid = 0;
   let missingInvoiceCount = 0;
+  // status-ladder signals
+  let hasProforma = false; // une pro forma (devis/acompte) est renseignée
+  let depositPaid = false; // l'acompte (pro forma ou facture d'acompte) a un paiement
+  let deliveryInvoiceCount = 0; // nb de factures rattachées à des livraisons
+  let hasFactureDefinitive = false; // une facture définitive est renseignée
+  let paymentWithoutInvoice = false; // une livraison a un paiement mais aucune facture
 
   const df = row.docFlow;
 
@@ -126,6 +138,8 @@ export function rawOrderToLedgerOrder(
     // Only the factures added under a delivery (packing list) count toward invoiced.
     // A deposit paid against the pro forma is still real money out, so it does count as paid.
     paid += pfPaid;
+    hasProforma = true;
+    if (pfPaid > 0) depositPaid = true;
     docs.push({
       id: pfId,
       kind: "proforma",
@@ -173,6 +187,7 @@ export function rawOrderToLedgerOrder(
       const diPaid = (di.paiements ?? []).reduce((a, p) => a + num(p.montant), 0);
       invoiced += diMontant;
       paid += diPaid;
+      if (diPaid > 0) depositPaid = true;
       docs.push({
         id: diId,
         kind: "supplier_invoice",
@@ -244,7 +259,12 @@ export function rawOrderToLedgerOrder(
     delivered += plInvoiced;
     invoiced += plInvoiced;
     paid += plPaid;
-    if (invoices.length === 0) missingInvoiceCount += 1;
+    deliveryInvoiceCount += invoices.length;
+    if (invoices.length === 0) {
+      missingInvoiceCount += 1;
+      // a delivery that carries a payment but no facture — the docFlow anomaly
+      if (plPaid > 0) paymentWithoutInvoice = true;
+    }
 
     docs.push({
       id: plId,
@@ -341,6 +361,7 @@ export function rawOrderToLedgerOrder(
     (hasPdf(df.factureDefinitive.pdf) || num(df.factureDefinitive.montant) > 0)
   ) {
     const fdId = `${row.id}:fd`;
+    hasFactureDefinitive = true;
     const fdMontant = num(df.factureDefinitive.montant);
     const fdPaid = (df.factureDefinitive.paiements ?? []).reduce((a, p) => a + num(p.montant), 0);
     invoiced += fdMontant;
@@ -386,24 +407,50 @@ export function rawOrderToLedgerOrder(
 
   timeline.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
 
-  // status ladder — packing lists / factures / paiements only (proforma tracked separately,
-  // doesn't advance this status). "delivered" here is the sum of packing-list-attached
-  // factures, the only amount a packing list carries in this data model.
-  const packingListCount = df?.packingLists?.length ?? 0;
+  // ── Status ladder ─────────────────────────────────────────────────────────
+  const season = seasonOf(row.notes);
+  const hasInvoice = deliveryInvoiceCount > 0 || hasFactureDefinitive;
+  // a delivery-stage invoice fully paid?
+  const invoicePaid = invoiced > 0 && paid >= invoiced * 0.99;
+  // total facturé au niveau du montant commandé ?
+  const invoicedMatchesOrder = ordered > 0 && invoiced >= ordered * 0.99;
+  // "Erreur" (fournisseurs, hors saisons en cours) : pro forma renseignée + un
+  // paiement rattaché à une livraison mais aucune facture émise.
+  const isDocflowError =
+    side === "payable" &&
+    !CURRENT_SEASONS.has(season) &&
+    hasProforma &&
+    !hasInvoice &&
+    paymentWithoutInvoice;
+
   let status: Order["status"];
   if (row.cloture) {
-    // manually closed by the user — overrides the computed ladder
+    // clôture manuelle par l'utilisateur — prime sur la grille calculée
     status = "closed";
-  } else if (packingListCount === 0) {
-    status = "confirmed";
-  } else if (delivered < ordered * 0.99) {
-    status = "partially_shipped";
-  } else if (missingInvoiceCount > 0) {
-    status = "partially_invoiced";
-  } else if (paid < invoiced * 0.99) {
-    status = "to_settle";
+  } else if (side === "payable") {
+    // ── FOURNISSEURS : grille complète (acompte → facture) ──
+    if (isDocflowError) {
+      status = "error";
+    } else if (!hasProforma && !hasInvoice) {
+      status = "confirmed";
+    } else if (hasProforma && !hasInvoice && !depositPaid) {
+      status = "deposit_to_pay";
+    } else if (hasProforma && !hasInvoice && depositPaid) {
+      status = "deposit_paid";
+    } else if (hasInvoice) {
+      // facture présente (avec ou sans pro forma) : on solde sur les factures
+      if (!invoicePaid) status = "invoice_to_pay";
+      else if (invoicedMatchesOrder) status = "closed";
+      else status = "partially_invoiced";
+    } else {
+      status = "confirmed";
+    }
   } else {
-    status = "closed";
+    // ── CLIENTS : grille simplifiée, basée sur les totaux ──
+    if (invoiced <= 0) status = "confirmed";
+    else if (!invoicePaid) status = "invoice_to_pay";
+    else if (invoicedMatchesOrder) status = "closed";
+    else status = "partially_invoiced";
   }
 
   const progress = row.cloture
@@ -413,6 +460,19 @@ export function rawOrderToLedgerOrder(
       : Math.min(1, (delivered + invoiced + paid) / (ordered * 3));
 
   const alerts: Alert[] = [];
+  if (status === "error") {
+    alerts.push({
+      id: `a:${row.id}:docflow_error`,
+      severity: "high",
+      kind: "payment_without_invoice",
+      title: "Erreur — facture manquante sur une livraison payée",
+      detail:
+        `La commande ${row.reference ?? row.id} a une pro forma et un paiement rattaché à une ` +
+        `livraison, mais aucune facture n'est enregistrée sur cette livraison. ` +
+        `Il manque la facture correspondante (montant payé : ${paid.toFixed(2)} ${currency}).`,
+      orderId: row.id,
+    });
+  }
   if (invoiced > ordered * 1.01) {
     alerts.push({
       id: `a:${row.id}:invoice_exceeds_po`,

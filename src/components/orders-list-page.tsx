@@ -49,10 +49,12 @@ import { ENTITIES, type Entity } from "@/lib/entities";
 
 const STATUS_OPTIONS: { value: OrderStatus; label: string }[] = [
   { value: "confirmed", label: "Commande confirmée" },
-  { value: "partially_shipped", label: "Expédiée partiellement" },
-  { value: "partially_invoiced", label: "Facturée partiellement" },
-  { value: "to_settle", label: "À solder" },
-  { value: "closed", label: "Clôturée" },
+  { value: "deposit_to_pay", label: "Deposit à régler" },
+  { value: "deposit_paid", label: "Deposit payé" },
+  { value: "invoice_to_pay", label: "Facture à payer" },
+  { value: "partially_invoiced", label: "Facturé partiellement" },
+  { value: "closed", label: "Clôturé" },
+  { value: "error", label: "Erreur" },
 ];
 
 type SortKey =
@@ -70,10 +72,12 @@ type SortKey =
 // order used when sorting by the "Statut" column
 const STATUS_RANK: Record<OrderStatus, number> = {
   confirmed: 0,
-  partially_shipped: 1,
-  partially_invoiced: 2,
-  to_settle: 3,
-  closed: 4,
+  deposit_to_pay: 1,
+  deposit_paid: 2,
+  invoice_to_pay: 3,
+  partially_invoiced: 4,
+  closed: 5,
+  error: 6,
 };
 
 export function OrdersListPage({ entity }: { entity: Entity }) {
