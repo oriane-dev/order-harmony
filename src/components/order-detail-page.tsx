@@ -50,38 +50,44 @@ export function OrderDetailContent({ order: initialOrder, entity }: { order: Ord
   const rawOrder = rawOrders.find((o) => o.id === order.id);
   const [editOpen, setEditOpen] = useState(false);
 
+  // resync the cache with the server and tell the user when a save fails (network,
+  // permissions…) instead of silently losing the change
+  const resync = () => {
+    queryClient.invalidateQueries({ queryKey: cfg.ordersKey });
+    queryClient.invalidateQueries({ queryKey: cfg.rawOrdersKey });
+  };
+  const onSaveError = (e: Error) => {
+    resync();
+    alert(e.message || "Échec de l'enregistrement. Vérifiez votre connexion et réessayez.");
+  };
+
   const delMutation = useMutation({
     mutationFn: () => deleteOrder(order.id, cfg.ordersTable),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: cfg.ordersKey });
       navigate(isSupplier ? { to: "/orders" } : { to: "/customer-orders" });
     },
+    onError: onSaveError,
   });
 
   const isClosed = Boolean(rawOrder?.cloture);
   const clotureMutation = useMutation({
     mutationFn: (value: boolean) => saveOrder({ ...rawOrder!, cloture: value }, cfg.ordersTable),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: cfg.ordersKey });
-      queryClient.invalidateQueries({ queryKey: cfg.rawOrdersKey });
-    },
+    onSuccess: resync,
+    onError: onSaveError,
   });
 
   const deliveryMutation = useMutation({
     mutationFn: (value: string) => saveOrder(setDeliveryDate(rawOrder!, value), cfg.ordersTable),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: cfg.ordersKey });
-      queryClient.invalidateQueries({ queryKey: cfg.rawOrdersKey });
-    },
+    onSuccess: resync,
+    onError: onSaveError,
   });
 
   const isArchived = Boolean(rawOrder?.archived);
   const archiveMutation = useMutation({
     mutationFn: (value: boolean) => saveOrder(setArchived(rawOrder!, value), cfg.ordersTable),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: cfg.ordersKey });
-      queryClient.invalidateQueries({ queryKey: cfg.rawOrdersKey });
-    },
+    onSuccess: resync,
+    onError: onSaveError,
   });
 
   const remainingToDeliver = Math.max(0, order.totals.ordered - order.totals.delivered);
