@@ -177,6 +177,7 @@ function EcheancesPage() {
   const [sideFilter, setSideFilter] = useState<"all" | "payable" | "receivable">("all");
   const [typeFilter, setTypeFilter] = useState<"all" | Category>("all");
   const [seasonFilter, setSeasonFilter] = useState<string>("all");
+  const [partyFilter, setPartyFilter] = useState<string>("all");
   const [sortKey, setSortKey] = useState<SortKey>("date");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
@@ -188,12 +189,27 @@ function EcheancesPage() {
     [allDue],
   );
 
+  // liste des contreparties présentes dans l'échéancier (respecte le filtre côté)
+  const partyOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          allDue
+            .filter((d) => sideFilter === "all" || d.side === sideFilter)
+            .map((d) => d.order.party.name)
+            .filter(Boolean),
+        ),
+      ).sort((a, b) => a.localeCompare(b)),
+    [allDue, sideFilter],
+  );
+
   const rows = useMemo(() => {
     const filtered = allDue.filter(
       (d) =>
         (sideFilter === "all" || d.side === sideFilter) &&
         (typeFilter === "all" || d.category === typeFilter) &&
-        (seasonFilter === "all" || d.season === seasonFilter),
+        (seasonFilter === "all" || d.season === seasonFilter) &&
+        (partyFilter === "all" || d.order.party.name === partyFilter),
     );
     const val = (d: DueItem): string | number => {
       switch (sortKey) {
@@ -226,7 +242,7 @@ function EcheancesPage() {
       }
       return String(va).localeCompare(String(vb)) * dir;
     });
-  }, [allDue, sideFilter, typeFilter, seasonFilter, sortKey, sortDir]);
+  }, [allDue, sideFilter, typeFilter, seasonFilter, partyFilter, sortKey, sortDir]);
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -316,6 +332,19 @@ function EcheancesPage() {
               {seasonOptions.map((s) => (
                 <SelectItem key={s} value={s}>
                   {s}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={partyFilter} onValueChange={setPartyFilter}>
+            <SelectTrigger className="w-56">
+              <SelectValue placeholder="Contrepartie" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Toutes les contreparties</SelectItem>
+              {partyOptions.map((p) => (
+                <SelectItem key={p} value={p}>
+                  {p}
                 </SelectItem>
               ))}
             </SelectContent>
