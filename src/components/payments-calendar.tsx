@@ -113,6 +113,8 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
   const model = useMemo(() => {
     const seasonById = new Map(rawOrders.map((o) => [o.id, seasonOf(o.notes)]));
     const rawById = new Map(rawOrders.map((o) => [o.id, o]));
+    // les commandes archivées disparaissent de l'échéancier et du calendrier
+    const activeRaw = rawOrders.filter((o) => !o.archived);
 
     // Per-cell order detail (which orders make up each amount) — for click-through.
     const actualDetails = new Map<string, Map<string, CellItem[]>>();
@@ -120,7 +122,7 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
 
     // ACTUAL: real payments (out or in), bucketed by the month of the payment date × season.
     const actual = new Map<string, Map<string, number>>();
-    for (const ro of rawOrders) {
+    for (const ro of activeRaw) {
       const season = seasonById.get(ro.id) ?? "";
       const df = ro.docFlow;
       if (!df) continue;
@@ -155,7 +157,7 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
     if (isSupplier) {
       const supByName = supplierByNameIndex(rawSuppliers);
       const adaptedById = new Map(orders.map((o) => [o.id, o]));
-      for (const ro of rawOrders) {
+      for (const ro of activeRaw) {
         const season = seasonById.get(ro.id) ?? "";
         // Échéancier par conditions de paiement, pour toute saison dès que le
         // fournisseur a des conditions complètes (~100 %). Déclencheurs : acompte à
@@ -204,7 +206,7 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
     } else {
       // Customer: each unpaid invoice's own outstanding, at its due date (échéance).
       // Invoices whose échéance is already reached go to the "En retard" bucket.
-      for (const ro of rawOrders) {
+      for (const ro of activeRaw) {
         const season = seasonById.get(ro.id) ?? "";
         const df = ro.docFlow;
         if (!df) continue;

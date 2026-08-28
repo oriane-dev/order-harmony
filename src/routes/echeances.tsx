@@ -22,6 +22,7 @@ import {
   rawSuppliersQueryOptions,
 } from "@/lib/data";
 import { computeSupplierSchedule, supplierByNameIndex } from "@/lib/payment-schedule";
+import { seasonOf, seasonSortKey } from "@/lib/season";
 import { shortMoney, fmtDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -46,6 +47,7 @@ interface DueItem {
   order: Order;
   side: "payable" | "receivable";
   sideLabel: string;
+  season: string;
   category: Category;
   label: string; // libellé détaillé (ex. "Acompte 30%")
   amount: number;
@@ -63,7 +65,7 @@ function customerDueDate(raw: RawOrder | undefined): string {
   return dates[0] ?? "";
 }
 
-type SortKey = "number" | "party" | "side" | "type" | "date" | "amount";
+type SortKey = "number" | "party" | "side" | "season" | "type" | "date" | "amount";
 
 function EcheancesPage() {
   const { data: supplierOrders } = useSuspenseQuery(ordersQueryOptions());
@@ -79,7 +81,9 @@ function EcheancesPage() {
     const out: DueItem[] = [];
 
     for (const o of supplierOrders) {
+      if (o.archived) continue; // les archivées ne sont pas dans l'échéancier
       const raw = rawSupById.get(o.id);
+      const season = seasonOf(raw?.notes);
       const sched = raw
         ? computeSupplierSchedule(raw, supIndex.get((raw.fournisseur ?? "").trim().toLowerCase()))
         : [];
@@ -97,6 +101,7 @@ function EcheancesPage() {
             order: o,
             side: "payable",
             sideLabel: "Fournisseur",
+            season,
             category,
             label: inst.label,
             amount: inst.remaining,
@@ -115,6 +120,7 @@ function EcheancesPage() {
               order: o,
               side: "payable",
               sideLabel: "Fournisseur",
+              season,
               category: "Acompte",
               label: "Acompte",
               amount,
@@ -129,6 +135,7 @@ function EcheancesPage() {
               order: o,
               side: "payable",
               sideLabel: "Fournisseur",
+              season,
               category: "Facture",
               label: "Facture",
               amount: gap,
@@ -140,6 +147,8 @@ function EcheancesPage() {
     }
 
     for (const o of customerOrders) {
+      if (o.archived) continue;
+      const raw = rawCustById.get(o.id);
       const gap = o.totals.invoiced - o.totals.paid;
       if (gap > 0.01)
         out.push({
@@ -147,10 +156,11 @@ function EcheancesPage() {
           order: o,
           side: "receivable",
           sideLabel: "Client",
+          season: seasonOf(raw?.notes),
           category: "Facture",
           label: "Facture",
           amount: gap,
-          date: customerDueDate(rawCustById.get(o.id)),
+          date: customerDueDate(raw),
           estimated: false,
         });
     }
@@ -166,14 +176,24 @@ function EcheancesPage() {
 
   const [sideFilter, setSideFilter] = useState<"all" | "payable" | "receivable">("all");
   const [typeFilter, setTypeFilter] = useState<"all" | Category>("all");
+  const [seasonFilter, setSeasonFilter] = useState<string>("all");
   const [sortKey, setSortKey] = useState<SortKey>("date");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  const seasonOptions = useMemo(
+    () =>
+      Array.from(new Set(allDue.map((d) => d.season).filter(Boolean))).sort(
+        (a, b) => seasonSortKey(a) - seasonSortKey(b),
+      ),
+    [allDue],
+  );
 
   const rows = useMemo(() => {
     const filtered = allDue.filter(
       (d) =>
         (sideFilter === "all" || d.side === sideFilter) &&
-        (typeFilter === "all" || d.category === typeFilter),
+        (typeFilter === "all" || d.category === typeFilter) &&
+        (seasonFilter === "all" || d.season === seasonFilter),
     );
     const val = (d: DueItem): string | number => {
       switch (sortKey) {
@@ -183,6 +203,8 @@ function EcheancesPage() {
           return d.order.party.name.toLowerCase();
         case "side":
           return d.sideLabel;
+        case "season":
+          return d.season ? seasonSortKey(d.season) : Infinity;
         case "type":
           return d.category;
         case "date":
@@ -204,7 +226,7 @@ function EcheancesPage() {
       }
       return String(va).localeCompare(String(vb)) * dir;
     });
-  }, [allDue, sideFilter, typeFilter, sortKey, sortDir]);
+  }, [allDue, sideFilter, typeFilter, seasonFilter, sortKey, sortDir]);
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -285,6 +307,19 @@ function EcheancesPage() {
               <SelectItem value="Facture">Facture</SelectItem>
             </SelectContent>
           </Select>
+          <Select value={seasonFilter} onValueChange={setSeasonFilter}>
+            <SelectTrigger className="w-40">
+              <SelectValue placeholder="Saison" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Toutes les saisons</SelectItem>
+              {seasonOptions.map((s) => (
+                <SelectItem key={s} value={s}>
+                  {s}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <div className="text-sm text-muted-foreground ml-auto">
             {rows.length} échéance{rows.length > 1 ? "s" : ""}
           </div>
@@ -294,7 +329,7 @@ function EcheancesPage() {
           <div className="grid grid-cols-12 gap-3 px-5 py-3 border-b border-border text-[10px] tracking-widest text-muted-foreground">
             <Th label="Commande" k="number" className="col-span-2" />
             <Th label="Contrepartie" k="party" className="col-span-3" />
-            <Th label="Côté" k="side" className="col-span-1" />
+            <Th label="Saison" k="season" className="col-span-1" />
             <Th label="Type" k="type" className="col-span-2" />
             <Th label="Échéance" k="date" className="col-span-2" />
             <Th label="Montant dû" k="amount" align="right" className="col-span-2 text-right" />
@@ -311,9 +346,16 @@ function EcheancesPage() {
                 order={d.order}
                 className="grid grid-cols-12 gap-3 px-5 py-4 items-center hover:bg-surface-2 transition-colors"
               >
-                <div className="col-span-2 text-sm font-medium">{d.order.number}</div>
+                <div className="col-span-2">
+                  <div className="text-sm font-medium">{d.order.number}</div>
+                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                    {d.sideLabel}
+                  </div>
+                </div>
                 <div className="col-span-3 text-sm truncate">{d.order.party.name}</div>
-                <div className="col-span-1 text-xs text-muted-foreground">{d.sideLabel}</div>
+                <div className="col-span-1 text-xs num">
+                  {d.season || <span className="text-muted-foreground">—</span>}
+                </div>
                 <div className="col-span-2">
                   <span
                     className={cn(

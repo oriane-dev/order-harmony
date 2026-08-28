@@ -18,7 +18,7 @@ import {
   rawCustomerOrdersQueryOptions,
 } from "@/lib/data";
 import { severityLabel } from "@/lib/ledger-types";
-import { deleteOrder, saveOrder, setDeliveryDate } from "@/lib/thalae-mutations";
+import { deleteOrder, saveOrder, setDeliveryDate, setArchived } from "@/lib/thalae-mutations";
 import { shortMoney, fmtDate } from "@/lib/format";
 import { ENTITIES, type Entity } from "@/lib/entities";
 import {
@@ -29,6 +29,8 @@ import {
   Pencil,
   Trash2,
   User,
+  Archive,
+  ArchiveRestore,
 } from "lucide-react";
 
 export function OrderDetailContent({ order: initialOrder, entity }: { order: Order; entity: Entity }) {
@@ -73,6 +75,15 @@ export function OrderDetailContent({ order: initialOrder, entity }: { order: Ord
     },
   });
 
+  const isArchived = Boolean(rawOrder?.archived);
+  const archiveMutation = useMutation({
+    mutationFn: (value: boolean) => saveOrder(setArchived(rawOrder!, value), cfg.ordersTable),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: cfg.ordersKey });
+      queryClient.invalidateQueries({ queryKey: cfg.rawOrdersKey });
+    },
+  });
+
   const remainingToDeliver = Math.max(0, order.totals.ordered - order.totals.delivered);
   const remainingToInvoice = Math.max(0, order.totals.ordered - order.totals.invoiced);
   const remainingToPay = Math.max(0, order.totals.invoiced - order.totals.paid);
@@ -104,6 +115,11 @@ export function OrderDetailContent({ order: initialOrder, entity }: { order: Ord
               <div className="flex items-center gap-3">
                 <h1 className="font-serif text-4xl">{order.number}</h1>
                 <StatusChip status={order.status} />
+                {isArchived && (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
+                    Archivée
+                  </span>
+                )}
               </div>
               <div className="text-sm text-muted-foreground mt-1">
                 {cfg.party} · {order.party.name}
@@ -159,6 +175,28 @@ export function OrderDetailContent({ order: initialOrder, entity }: { order: Ord
                       title="Clôturer manuellement — le statut passe à « Clôturée » et les alertes sont masquées, même si le facturé dépasse le bon de commande."
                     >
                       <CheckCircle2 /> Clôturer
+                    </Button>
+                  ))}
+                {rawOrder &&
+                  (isArchived ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={archiveMutation.isPending}
+                      onClick={() => archiveMutation.mutate(false)}
+                      title="Désarchiver — la commande réapparaît dans l'échéancier et le calendrier"
+                    >
+                      <ArchiveRestore /> Désarchiver
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={archiveMutation.isPending}
+                      onClick={() => archiveMutation.mutate(true)}
+                      title="Archiver — retire la commande de l'échéancier et du calendrier, sans la supprimer"
+                    >
+                      <Archive /> Archiver
                     </Button>
                   ))}
                 <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>

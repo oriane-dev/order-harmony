@@ -184,6 +184,12 @@ export function setDeliveryDate(order: RawOrder, dateLivraison: string): RawOrde
   return { ...order, dateLivraison: dateLivraison || undefined };
 }
 
+// Archiver / désarchiver : la commande reste en base et consultable, mais disparaît
+// de l'échéancier et du calendrier.
+export function setArchived(order: RawOrder, value: boolean): RawOrder {
+  return { ...order, archived: value };
+}
+
 /* ── PACKING LISTS ─────────────────────────────────────────────────────── */
 
 export function addPackingList(order: RawOrder): RawOrder {

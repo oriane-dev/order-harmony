@@ -98,6 +98,7 @@ export interface Order {
   docs: DocRef[];
   timeline: TimelineEvent[];
   alerts: Alert[];
+  archived: boolean; // masquée de l'échéancier et du calendrier (non supprimée)
 }
 
 export function findOrder(orders: Order[], id: string): Order | undefined {

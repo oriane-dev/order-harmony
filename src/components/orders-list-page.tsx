@@ -398,7 +398,14 @@ export function OrdersListPage({ entity }: { entity: Entity }) {
                     className="hover:bg-surface-2 transition-colors cursor-pointer"
                   >
                     <td className="px-5 py-3.5">
-                      <div className="text-sm font-medium">{o.number}</div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-sm font-medium">{o.number}</span>
+                        {o.archived && (
+                          <span className="rounded-full bg-muted px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-muted-foreground">
+                            Archivée
+                          </span>
+                        )}
+                      </div>
                       <div className="text-xs text-muted-foreground truncate max-w-[200px]">
                         {o.party.name}
                       </div>

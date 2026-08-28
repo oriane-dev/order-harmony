@@ -540,6 +540,7 @@ export function rawOrderToLedgerOrder(
     timeline,
     // a manually-closed order is considered settled — hide its alerts everywhere
     alerts: row.cloture ? [] : alerts,
+    archived: Boolean(row.archived),
   };
 }
 

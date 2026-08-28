@@ -169,6 +169,9 @@ export interface RawOrder {
   // its alerts, e.g. when the order was legitimately revised so "facture > bon de
   // commande" is expected. New field (Thalae preserves unknown fields).
   cloture?: boolean;
+  // Archivée par l'utilisateur — la commande reste consultable mais disparaît de
+  // l'échéancier et du calendrier (on ne la supprime pas). New field.
+  archived?: boolean;
 }
 
 export interface RawConditionPaiement {
