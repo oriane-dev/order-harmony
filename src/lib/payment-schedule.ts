@@ -14,7 +14,7 @@
 
 import type { RawFacture, RawOrder, RawSupplier } from "@/lib/thalae-types";
 
-export type InstallmentKind = "deposit" | "before_shipment" | "net_x";
+export type InstallmentKind = "deposit" | "post_proforma" | "before_shipment" | "net_x";
 
 export interface Installment {
   id: string;
@@ -85,7 +85,20 @@ export function computeSupplierSchedule(
     const days = c.daysAfterEvent ?? 0;
     const id = c.id || `c${i}`;
     if (c.triggerType === "date_order") {
-      // Acompte → échéance = date de la pro forma
+      // Déclenché par la pro forma. daysAfterOrder = 0 → acompte à la date de la pro
+      // forma ; > 0 → échéance X jours APRÈS la date de la pro forma.
+      const daysAfterProforma = c.daysAfterOrder ?? 0;
+      if (daysAfterProforma > 0) {
+        return {
+          id,
+          kind: "post_proforma",
+          label: `Solde ${c.percent}% (net ${daysAfterProforma}j pro forma)`,
+          date: addDaysIso(proformaDate, daysAfterProforma),
+          amount,
+          remaining: amount,
+          estimated: false,
+        };
+      }
       return {
         id,
         kind: "deposit",
