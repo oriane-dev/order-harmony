@@ -19,6 +19,7 @@ import {
 } from "@/lib/data";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { seasonOf, seasonSortKey } from "@/lib/season";
+import { computeSupplierSchedule, supplierByNameIndex } from "@/lib/payment-schedule";
 import { shortMoney, fmtDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { Entity } from "@/lib/entities";
@@ -36,13 +37,6 @@ function keyFromIso(iso: string | undefined): string | null {
 function addMonthKey(key: string, delta: number): string {
   const [y, m] = key.split("-").map(Number);
   return keyFromDate(new Date(y, m - 1 + delta, 1));
-}
-function addDaysIso(iso: string | undefined, n: number): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  d.setDate(d.getDate() + n);
-  return d.toISOString().slice(0, 10);
 }
 function monthLabelShort(key: string): { m: string; y: string } {
   const [y, m] = key.split("-").map(Number);
@@ -108,7 +102,7 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
     isSupplier ? rawOrdersQueryOptions() : rawCustomerOrdersQueryOptions(),
   );
   // Supplier payment terms (fiches) — used to forecast supplier décaissements (acompte /
-  // before shipment / net X days) for PS27 & SS27 orders.
+  // before shipment / net X days) for orders whose supplier has complete terms.
   const { data: rawSuppliers } = useSuspenseQuery(rawSuppliersQueryOptions());
 
   // Re-evaluated on every render, so the "current month" divider tracks the real calendar.
@@ -159,71 +153,31 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
     // Per-invoice detail behind each overdue amount (for the drill-down dialog).
     const overdueItems: OverdueItem[] = [];
     if (isSupplier) {
-      const supByName = new Map(rawSuppliers.map((s) => [(s.nom ?? "").trim().toLowerCase(), s]));
+      const supByName = supplierByNameIndex(rawSuppliers);
       const adaptedById = new Map(orders.map((o) => [o.id, o]));
-      const paidOf = (ro: (typeof rawOrders)[number]): number => {
-        const df = ro.docFlow;
-        if (!df) return 0;
-        const all = [
-          ...(df.proforma?.paiements ?? []),
-          ...(df.proforma?.depositInvoices ?? []).flatMap((di) => di.paiements ?? []),
-          ...(df.packingLists ?? []).flatMap((pl) => pl.paiements ?? []),
-          ...(df.factureDefinitive?.paiements ?? []),
-        ];
-        return all.reduce((a, p) => a + (p.montant ?? 0), 0);
-      };
       for (const ro of rawOrders) {
         const season = seasonById.get(ro.id) ?? "";
-        const sup = supByName.get((ro.fournisseur ?? "").trim().toLowerCase());
-        const conds = sup?.conditionsPaiement ?? [];
-        const montant = ro.montant ?? 0;
-        const pctSum = conds.reduce((a, c) => a + (c.percent ?? 0), 0);
-        // Condition-based décaissement forecast, ONLY for PS27 & SS27 orders whose
-        // supplier has complete payment terms (sum ≈ 100 %) and a delivery date.
-        const scheduleable =
-          (season === "PS27" || season === "SS27") &&
-          conds.length > 0 &&
-          !!ro.dateLivraison &&
-          montant > 0 &&
-          Math.abs(pctSum - 100) < 0.5;
-        if (scheduleable) {
-          let paidLeft = paidOf(ro);
-          const insts = conds
-            .map((c) => {
-              const amt = (montant * (c.percent ?? 0)) / 100;
-              // acompte → à l'arrivée de la commande ; before shipment → delivery date ;
-              // net X days → delivery date + X jours.
-              const isDeposit = c.triggerType === "date_order";
-              const days = c.daysAfterEvent ?? 0;
-              const date = isDeposit
-                ? ro.createdAt || ro.dateCommande || ""
-                : days > 0
-                  ? addDaysIso(ro.dateLivraison, days)
-                  : ro.dateLivraison || "";
-              const label = isDeposit
-                ? `Acompte ${c.percent}%`
-                : days > 0
-                  ? `Solde ${c.percent}% (net ${days}j)`
-                  : `Avant expédition ${c.percent}%`;
-              return { amt, date, label };
-            })
-            .filter((x) => x.date)
-            .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
-          for (const it of insts) {
-            const cover = Math.min(paidLeft, it.amt);
-            paidLeft -= cover;
-            const rem = it.amt - cover;
-            if (rem <= 0.01) continue;
+        // Échéancier par conditions de paiement, pour toute saison dès que le
+        // fournisseur a des conditions complètes (~100 %). Déclencheurs : acompte à
+        // la date de la pro forma, before shipment à la facture (estimé à la
+        // livraison sinon), solde net X à livraison + X jours.
+        const sched = computeSupplierSchedule(
+          ro,
+          supByName.get((ro.fournisseur ?? "").trim().toLowerCase()),
+        );
+        if (sched.length) {
+          for (const it of sched) {
+            if (it.remaining <= 0.01 || !it.date) continue;
             const k = keyFromIso(it.date);
             if (!k) continue;
             // an installment already due (this month or earlier) shows in the current month
             const bk = k < currentKey ? currentKey : k;
-            bump(expected, season, bk, rem);
+            bump(expected, season, bk, it.remaining);
             pushCell(expectedDetails, season, bk, {
               orderId: ro.id,
               ref: ro.reference ?? ro.id,
               party: ro.fournisseur ?? "",
-              amount: rem,
+              amount: it.remaining,
               kind: "attendu",
               label: it.label,
             });
@@ -457,7 +411,7 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
   const seasonLabel = (s: string) => (s === "" ? "Sans saison" : s);
   const realWord = isSupplier ? "Payé" : "Encaissé";
   const expectedNote = isSupplier
-    ? "PS27 & SS27 : d'après les conditions de paiement ; sinon d'après le facturé"
+    ? "d'après les conditions de paiement quand elles sont complètes ; sinon d'après le facturé"
     : "prévu d'après les échéances (due dates)";
 
   return (

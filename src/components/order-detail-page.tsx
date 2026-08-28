@@ -18,7 +18,7 @@ import {
   rawCustomerOrdersQueryOptions,
 } from "@/lib/data";
 import { severityLabel } from "@/lib/ledger-types";
-import { deleteOrder, saveOrder } from "@/lib/thalae-mutations";
+import { deleteOrder, saveOrder, setDeliveryDate } from "@/lib/thalae-mutations";
 import { shortMoney, fmtDate } from "@/lib/format";
 import { ENTITIES, type Entity } from "@/lib/entities";
 import {
@@ -59,6 +59,14 @@ export function OrderDetailContent({ order: initialOrder, entity }: { order: Ord
   const isClosed = Boolean(rawOrder?.cloture);
   const clotureMutation = useMutation({
     mutationFn: (value: boolean) => saveOrder({ ...rawOrder!, cloture: value }, cfg.ordersTable),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: cfg.ordersKey });
+      queryClient.invalidateQueries({ queryKey: cfg.rawOrdersKey });
+    },
+  });
+
+  const deliveryMutation = useMutation({
+    mutationFn: (value: string) => saveOrder(setDeliveryDate(rawOrder!, value), cfg.ordersTable),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: cfg.ordersKey });
       queryClient.invalidateQueries({ queryKey: cfg.rawOrdersKey });
@@ -117,7 +125,18 @@ export function OrderDetailContent({ order: initialOrder, entity }: { order: Ord
                 <div className="text-xs uppercase tracking-wider text-muted-foreground">
                   Livraison prévue
                 </div>
-                <div className="mt-0.5 num">{fmtDate(order.expectedAt)}</div>
+                {rawOrder ? (
+                  <input
+                    type="date"
+                    value={rawOrder.dateLivraison ?? ""}
+                    disabled={deliveryMutation.isPending}
+                    onChange={(e) => deliveryMutation.mutate(e.target.value)}
+                    className="mt-0.5 rounded-md border border-border bg-surface px-2 py-1 text-sm num disabled:opacity-50"
+                    title="Modifier la date de livraison — le solde 'net X jours' se recalcule automatiquement"
+                  />
+                ) : (
+                  <div className="mt-0.5 num">{fmtDate(order.expectedAt)}</div>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 {rawOrder &&

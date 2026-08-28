@@ -3,7 +3,6 @@ import { useSuspenseQuery } from "@tanstack/react-query";
 import { useMemo, useState, type ReactNode } from "react";
 import { AppShell } from "@/components/app-shell";
 import { KpiCard } from "@/components/kpi-card";
-import { StatusChip } from "@/components/status-chip";
 import { OrderLink } from "@/components/order-link";
 import {
   Select,
@@ -13,8 +12,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
-import type { Order, OrderStatus } from "@/lib/ledger-types";
-import { ordersQueryOptions, customerOrdersQueryOptions } from "@/lib/data";
+import type { Order } from "@/lib/ledger-types";
+import type { RawOrder } from "@/lib/thalae-types";
+import {
+  ordersQueryOptions,
+  customerOrdersQueryOptions,
+  rawOrdersQueryOptions,
+  rawCustomerOrdersQueryOptions,
+  rawSuppliersQueryOptions,
+} from "@/lib/data";
+import { computeSupplierSchedule, supplierByNameIndex } from "@/lib/payment-schedule";
 import { shortMoney, fmtDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -25,60 +32,130 @@ export const Route = createFileRoute("/echeances")({
       {
         name: "description",
         content:
-          "Échéancier : acomptes et factures à régler, côté fournisseurs et clients — filtrable et triable.",
+          "Échéancier daté : acomptes, before shipment et soldes à régler, avec la date d'échéance de chaque paiement.",
       },
     ],
   }),
   component: EcheancesPage,
 });
 
-type DueType = "Acompte" | "Facture";
+type Category = "Acompte" | "Before shipment" | "Solde" | "Facture";
 
 interface DueItem {
+  key: string;
   order: Order;
   side: "payable" | "receivable";
   sideLabel: string;
-  type: DueType;
+  category: Category;
+  label: string; // libellé détaillé (ex. "Acompte 30%")
   amount: number;
+  date: string; // ISO ou ""
+  estimated: boolean;
 }
 
-// Turn an order into its outstanding échéance, if any.
-// - deposit_to_pay (fournisseurs) → acompte encore à régler (solde de la pro forma)
-// - toute commande dont il reste un montant facturé non réglé → facture à payer
-function dueOf(order: Order): DueItem | null {
-  const sideLabel = order.side === "payable" ? "Fournisseur" : "Client";
-  if (order.status === "deposit_to_pay") {
-    const pf = order.docs.find((d) => d.kind === "proforma");
-    const amount = pf?.remaining ?? pf?.amount ?? order.totals.ordered;
-    if (amount > 0.01)
-      return { order, side: order.side, sideLabel, type: "Acompte", amount };
-    return null;
-  }
-  const gap = order.totals.invoiced - order.totals.paid;
-  if (gap > 0.01) return { order, side: order.side, sideLabel, type: "Facture", amount: gap };
-  return null;
+// première échéance dueDate d'une facture client non soldée (pour dater la ligne)
+function customerDueDate(raw: RawOrder | undefined): string {
+  const dates: string[] = [];
+  for (const pl of raw?.docFlow?.packingLists ?? [])
+    for (const f of pl.factures ?? []) if (f.dueDate) dates.push(f.dueDate);
+  for (const di of raw?.docFlow?.proforma?.depositInvoices ?? []) if (di.dueDate) dates.push(di.dueDate);
+  dates.sort();
+  return dates[0] ?? "";
 }
 
-type SortKey = "number" | "party" | "side" | "type" | "status" | "date" | "amount";
-
-const STATUS_RANK: Record<OrderStatus, number> = {
-  confirmed: 0,
-  deposit_to_pay: 1,
-  deposit_paid: 2,
-  invoice_to_pay: 3,
-  partially_invoiced: 4,
-  closed: 5,
-  error: 6,
-};
+type SortKey = "number" | "party" | "side" | "type" | "date" | "amount";
 
 function EcheancesPage() {
   const { data: supplierOrders } = useSuspenseQuery(ordersQueryOptions());
   const { data: customerOrders } = useSuspenseQuery(customerOrdersQueryOptions());
+  const { data: rawSupplierOrders } = useSuspenseQuery(rawOrdersQueryOptions());
+  const { data: rawCustomerOrders } = useSuspenseQuery(rawCustomerOrdersQueryOptions());
+  const { data: rawSuppliers } = useSuspenseQuery(rawSuppliersQueryOptions());
 
-  const allDue = useMemo(
-    () => [...supplierOrders, ...customerOrders].map(dueOf).filter((x): x is DueItem => x !== null),
-    [supplierOrders, customerOrders],
-  );
+  const allDue = useMemo(() => {
+    const supIndex = supplierByNameIndex(rawSuppliers);
+    const rawSupById = new Map(rawSupplierOrders.map((o) => [o.id, o]));
+    const rawCustById = new Map(rawCustomerOrders.map((o) => [o.id, o]));
+    const out: DueItem[] = [];
+
+    for (const o of supplierOrders) {
+      const raw = rawSupById.get(o.id);
+      const sched = raw
+        ? computeSupplierSchedule(raw, supIndex.get((raw.fournisseur ?? "").trim().toLowerCase()))
+        : [];
+      if (sched.length) {
+        for (const inst of sched) {
+          if (inst.remaining <= 0.01 || !inst.date) continue;
+          const category: Category =
+            inst.kind === "deposit"
+              ? "Acompte"
+              : inst.kind === "before_shipment"
+                ? "Before shipment"
+                : "Solde";
+          out.push({
+            key: `${o.id}:${inst.id}`,
+            order: o,
+            side: "payable",
+            sideLabel: "Fournisseur",
+            category,
+            label: inst.label,
+            amount: inst.remaining,
+            date: inst.date,
+            estimated: inst.estimated,
+          });
+        }
+      } else {
+        // pas de conditions complètes → affichage simple
+        if (o.status === "deposit_to_pay") {
+          const pf = o.docs.find((d) => d.kind === "proforma");
+          const amount = pf?.remaining ?? pf?.amount ?? o.totals.ordered;
+          if (amount > 0.01)
+            out.push({
+              key: `${o.id}:dep`,
+              order: o,
+              side: "payable",
+              sideLabel: "Fournisseur",
+              category: "Acompte",
+              label: "Acompte",
+              amount,
+              date: raw?.docFlow?.proforma?.docDate ?? "",
+              estimated: false,
+            });
+        } else {
+          const gap = o.totals.invoiced - o.totals.paid;
+          if (gap > 0.01)
+            out.push({
+              key: `${o.id}:fac`,
+              order: o,
+              side: "payable",
+              sideLabel: "Fournisseur",
+              category: "Facture",
+              label: "Facture",
+              amount: gap,
+              date: "",
+              estimated: false,
+            });
+        }
+      }
+    }
+
+    for (const o of customerOrders) {
+      const gap = o.totals.invoiced - o.totals.paid;
+      if (gap > 0.01)
+        out.push({
+          key: `${o.id}:fac`,
+          order: o,
+          side: "receivable",
+          sideLabel: "Client",
+          category: "Facture",
+          label: "Facture",
+          amount: gap,
+          date: customerDueDate(rawCustById.get(o.id)),
+          estimated: false,
+        });
+    }
+    return out;
+  }, [supplierOrders, customerOrders, rawSupplierOrders, rawCustomerOrders, rawSuppliers]);
 
   const totalPayable = allDue
     .filter((d) => d.side === "payable")
@@ -88,15 +165,15 @@ function EcheancesPage() {
     .reduce((a, d) => a + d.amount, 0);
 
   const [sideFilter, setSideFilter] = useState<"all" | "payable" | "receivable">("all");
-  const [typeFilter, setTypeFilter] = useState<"all" | DueType>("all");
-  const [sortKey, setSortKey] = useState<SortKey>("amount");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [typeFilter, setTypeFilter] = useState<"all" | Category>("all");
+  const [sortKey, setSortKey] = useState<SortKey>("date");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
   const rows = useMemo(() => {
     const filtered = allDue.filter(
       (d) =>
         (sideFilter === "all" || d.side === sideFilter) &&
-        (typeFilter === "all" || d.type === typeFilter),
+        (typeFilter === "all" || d.category === typeFilter),
     );
     const val = (d: DueItem): string | number => {
       switch (sortKey) {
@@ -107,11 +184,9 @@ function EcheancesPage() {
         case "side":
           return d.sideLabel;
         case "type":
-          return d.type;
-        case "status":
-          return STATUS_RANK[d.order.status] ?? 99;
+          return d.category;
         case "date":
-          return d.order.expectedAt ? new Date(d.order.expectedAt).getTime() : Infinity;
+          return d.date ? new Date(d.date).getTime() : Infinity; // sans date → en dernier
         case "amount":
           return d.amount;
       }
@@ -120,7 +195,13 @@ function EcheancesPage() {
     return [...filtered].sort((a, b) => {
       const va = val(a);
       const vb = val(b);
-      if (typeof va === "number" && typeof vb === "number") return (va - vb) * dir;
+      if (typeof va === "number" && typeof vb === "number") {
+        if (va === vb) return 0;
+        // Infinity (sans date) toujours en bas quel que soit le sens
+        if (va === Infinity) return 1;
+        if (vb === Infinity) return -1;
+        return (va - vb) * dir;
+      }
       return String(va).localeCompare(String(vb)) * dir;
     });
   }, [allDue, sideFilter, typeFilter, sortKey, sortDir]);
@@ -171,7 +252,8 @@ function EcheancesPage() {
           <div className="text-xs uppercase tracking-widest text-muted-foreground">Échéances</div>
           <h1 className="font-serif text-4xl mt-1">Échéancier</h1>
           <p className="text-muted-foreground mt-2">
-            Les acomptes et les factures encore à régler, côté fournisseurs et clients.
+            Chaque paiement à venir, à sa date d'échéance : acomptes (date de la pro forma), before
+            shipment (à réception de la facture) et soldes (net X jours après livraison).
           </p>
         </div>
 
@@ -192,12 +274,14 @@ function EcheancesPage() {
             </SelectContent>
           </Select>
           <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v as typeof typeFilter)}>
-            <SelectTrigger className="w-44">
+            <SelectTrigger className="w-48">
               <SelectValue placeholder="Type" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Tous les types</SelectItem>
               <SelectItem value="Acompte">Acompte</SelectItem>
+              <SelectItem value="Before shipment">Before shipment</SelectItem>
+              <SelectItem value="Solde">Solde (net X)</SelectItem>
               <SelectItem value="Facture">Facture</SelectItem>
             </SelectContent>
           </Select>
@@ -211,9 +295,8 @@ function EcheancesPage() {
             <Th label="Commande" k="number" className="col-span-2" />
             <Th label="Contrepartie" k="party" className="col-span-3" />
             <Th label="Côté" k="side" className="col-span-1" />
-            <Th label="Type" k="type" className="col-span-1" />
-            <Th label="Statut" k="status" className="col-span-2" />
-            <Th label="Livraison" k="date" align="right" className="col-span-1 text-right" />
+            <Th label="Type" k="type" className="col-span-2" />
+            <Th label="Échéance" k="date" className="col-span-2" />
             <Th label="Montant dû" k="amount" align="right" className="col-span-2 text-right" />
           </div>
           <div className="divide-y divide-border">
@@ -224,30 +307,36 @@ function EcheancesPage() {
             )}
             {rows.map((d) => (
               <OrderLink
-                key={`${d.order.id}:${d.type}`}
+                key={d.key}
                 order={d.order}
                 className="grid grid-cols-12 gap-3 px-5 py-4 items-center hover:bg-surface-2 transition-colors"
               >
                 <div className="col-span-2 text-sm font-medium">{d.order.number}</div>
                 <div className="col-span-3 text-sm truncate">{d.order.party.name}</div>
                 <div className="col-span-1 text-xs text-muted-foreground">{d.sideLabel}</div>
-                <div className="col-span-1">
+                <div className="col-span-2">
                   <span
                     className={cn(
-                      "inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium",
-                      d.type === "Acompte"
+                      "inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium whitespace-nowrap",
+                      d.category === "Acompte"
                         ? "bg-info/10 text-info"
-                        : "bg-warning/15 text-warning-foreground",
+                        : d.category === "Facture"
+                          ? "bg-warning/15 text-warning-foreground"
+                          : "bg-surface-2 text-foreground border border-border",
                     )}
                   >
-                    {d.type}
+                    {d.label}
                   </span>
                 </div>
-                <div className="col-span-2">
-                  <StatusChip status={d.order.status} />
-                </div>
-                <div className="col-span-1 text-right text-xs num text-muted-foreground">
-                  {d.order.expectedAt ? fmtDate(d.order.expectedAt) : "—"}
+                <div className="col-span-2 text-sm num">
+                  {d.date ? (
+                    <span className={cn(d.estimated && "text-muted-foreground")}>
+                      {fmtDate(d.date)}
+                      {d.estimated && " (prév.)"}
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground">date à définir</span>
+                  )}
                 </div>
                 <div className="col-span-2 text-right font-serif text-lg num text-warning-foreground">
                   {shortMoney(d.amount, d.order.currency)}

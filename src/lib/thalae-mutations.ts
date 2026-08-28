@@ -171,6 +171,19 @@ export function setProformaCurrency(order: RawOrder, devise: string | undefined)
   return withDocFlow(order, { ...df, proforma: { ...df.proforma, devise } });
 }
 
+// Date de la pro forma = échéance de l'acompte (sert à planifier l'acompte dans
+// l'échéancier et le calendrier).
+export function setProformaDate(order: RawOrder, docDate: string): RawOrder {
+  const df = ensureDocFlow(order);
+  return withDocFlow(order, { ...df, proforma: { ...df.proforma, docDate: docDate || undefined } });
+}
+
+// Date de livraison de la commande (niveau commande). Éditable dans le détail :
+// modifier cette date décale automatiquement le solde "net X jours".
+export function setDeliveryDate(order: RawOrder, dateLivraison: string): RawOrder {
+  return { ...order, dateLivraison: dateLivraison || undefined };
+}
+
 /* ── PACKING LISTS ─────────────────────────────────────────────────────── */
 
 export function addPackingList(order: RawOrder): RawOrder {
@@ -314,6 +327,29 @@ export function clearFacturePdf(order: RawOrder, plId: string, factureId: string
               x.id !== factureId
                 ? x
                 : { ...x, pdf: null, montant: undefined, montantBrut: undefined },
+            ),
+          },
+    ),
+  });
+}
+
+// Date de réception de la facture — déclenche le paiement "before shipment".
+export function setFactureDate(
+  order: RawOrder,
+  plId: string,
+  factureId: string,
+  docDate: string,
+): RawOrder {
+  const df = ensureDocFlow(order);
+  return withDocFlow(order, {
+    ...df,
+    packingLists: (df.packingLists ?? []).map((pl) =>
+      pl.id !== plId
+        ? pl
+        : {
+            ...pl,
+            factures: getPlFactures(pl).map((f) =>
+              f.id !== factureId ? f : { ...f, docDate: docDate || undefined },
             ),
           },
     ),

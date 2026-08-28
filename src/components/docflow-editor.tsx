@@ -242,6 +242,33 @@ function AmountField({
   );
 }
 
+/* ── Date field (saves on change) ─────────────────────────────────────── */
+
+function DateField({
+  value,
+  label,
+  busy,
+  onSave,
+}: {
+  value?: string;
+  label: string;
+  busy?: boolean;
+  onSave: (v: string) => void;
+}) {
+  return (
+    <label className="inline-flex items-center gap-1.5 text-xs">
+      <span className="text-muted-foreground">{label}</span>
+      <input
+        type="date"
+        value={value ?? ""}
+        disabled={busy}
+        onChange={(e) => onSave(e.target.value)}
+        className="rounded-md border border-border bg-surface px-2 py-1 text-sm text-foreground disabled:opacity-50"
+      />
+    </label>
+  );
+}
+
 /* ── Payments list + add/edit dialog ──────────────────────────────────── */
 
 function PaymentDialog({
@@ -562,6 +589,12 @@ function FactureRow({
             }
           />
         </div>
+        <DateField
+          label="Reçue le"
+          value={facture.docDate}
+          busy={mutation.isPending}
+          onSave={(v) => mutation.mutate((o) => M.setFactureDate(o, plId, facture.id, v))}
+        />
         <span className="flex-1" />
         {remaining > 0 ? (
           <button
@@ -773,6 +806,7 @@ export function DocflowEditor({
   const mutation = useOrderMutation(order.id, entity);
   const currency = order.devise || "EUR";
   const df = order.docFlow;
+  const isSupplier = entity === "supplier";
   const deposits = df?.proforma?.depositInvoices ?? [];
 
   return (
@@ -842,6 +876,14 @@ export function DocflowEditor({
                 })
               }
             />
+            {isSupplier && (
+              <DateField
+                label="Date de la pro forma (échéance de l'acompte)"
+                value={df?.proforma?.docDate}
+                busy={mutation.isPending}
+                onSave={(v) => mutation.mutate((o) => M.setProformaDate(o, v))}
+              />
+            )}
             <div>
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5">
                 Preuve de paiement
