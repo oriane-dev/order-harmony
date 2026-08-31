@@ -14,6 +14,7 @@ import type {
   RawDepositInvoice,
   RawDocFlow,
   RawFacture,
+  RawLivraisonProforma,
   RawOrder,
   RawPackingList,
   RawPayment,
@@ -78,6 +79,22 @@ export async function uploadPdf(file: File): Promise<RawPdf> {
   const id = `${uid()}.pdf`;
   const { error } = await supabase.storage.from(BUCKET).upload(id, file, {
     contentType: file.type || "application/pdf",
+  });
+  if (error) throw error;
+  const {
+    data: { publicUrl },
+  } = supabase.storage.from(BUCKET).getPublicUrl(id);
+  return { id, name: file.name, size: file.size, url: publicUrl };
+}
+
+// Comme uploadPdf mais conserve l'extension réelle (pour les images JPEG/PNG) afin
+// que le navigateur affiche correctement une capture d'écran.
+export async function uploadDocument(file: File): Promise<RawPdf> {
+  assertFileSize(file);
+  const ext = (file.name.split(".").pop() || "bin").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const id = `${uid()}.${ext}`;
+  const { error } = await supabase.storage.from(BUCKET).upload(id, file, {
+    contentType: file.type || "application/octet-stream",
   });
   if (error) throw error;
   const {
@@ -362,6 +379,88 @@ export function setFactureDate(
   });
 }
 
+/* ── PRO FORMA POUR LIVRAISON (before shipment partiel) ─────────────────── */
+
+// helper : appliquer une transformation à une livraison-proforma
+function mapLivraisonProforma(
+  df: ReturnType<typeof ensureDocFlow>,
+  plId: string,
+  lpId: string,
+  fn: (lp: RawLivraisonProforma) => RawLivraisonProforma,
+) {
+  return (df.packingLists ?? []).map((pl) =>
+    pl.id !== plId
+      ? pl
+      : {
+          ...pl,
+          livraisonProformas: (pl.livraisonProformas ?? []).map((lp) =>
+            lp.id === lpId ? fn(lp) : lp,
+          ),
+        },
+  );
+}
+
+export async function addLivraisonProformaWithFile(
+  order: RawOrder,
+  plId: string,
+  file: File,
+): Promise<RawOrder> {
+  const df = ensureDocFlow(order);
+  const pdf = await uploadDocument(file);
+  const lp: RawLivraisonProforma = { id: uid(), pdf, paiements: [] };
+  return withDocFlow(order, {
+    ...df,
+    packingLists: (df.packingLists ?? []).map((pl) =>
+      pl.id !== plId ? pl : { ...pl, livraisonProformas: [...(pl.livraisonProformas ?? []), lp] },
+    ),
+  });
+}
+
+export function setLivraisonProformaMontant(
+  order: RawOrder,
+  plId: string,
+  lpId: string,
+  montant: number,
+): RawOrder {
+  const df = ensureDocFlow(order);
+  return withDocFlow(order, {
+    ...df,
+    packingLists: mapLivraisonProforma(df, plId, lpId, (lp) => ({ ...lp, montant })),
+  });
+}
+
+export function setLivraisonProformaDueDate(
+  order: RawOrder,
+  plId: string,
+  lpId: string,
+  dueDate: string,
+): RawOrder {
+  const df = ensureDocFlow(order);
+  return withDocFlow(order, {
+    ...df,
+    packingLists: mapLivraisonProforma(df, plId, lpId, (lp) => ({
+      ...lp,
+      dueDate: dueDate || undefined,
+    })),
+  });
+}
+
+export function removeLivraisonProforma(order: RawOrder, plId: string, lpId: string): RawOrder {
+  const df = ensureDocFlow(order);
+  const pl = (df.packingLists ?? []).find((p) => p.id === plId);
+  const lp = (pl?.livraisonProformas ?? []).find((l) => l.id === lpId);
+  removePdf(lp?.pdf);
+  (lp?.paiements ?? []).forEach((p) => removePdf(p.pdf));
+  return withDocFlow(order, {
+    ...df,
+    packingLists: (df.packingLists ?? []).map((p) =>
+      p.id !== plId
+        ? p
+        : { ...p, livraisonProformas: (p.livraisonProformas ?? []).filter((l) => l.id !== lpId) },
+    ),
+  });
+}
+
 export function setFactureAmount(
   order: RawOrder,
   plId: string,
@@ -415,7 +514,8 @@ export type PaymentTarget =
   | { type: "proforma" }
   | { type: "packingList"; plId: string }
   | { type: "factureDefinitive" }
-  | { type: "depositInvoice"; diId: string };
+  | { type: "depositInvoice"; diId: string }
+  | { type: "livraisonProforma"; plId: string; lpId: string };
 
 export function getPayments(order: RawOrder, target: PaymentTarget): RawPayment[] {
   const df = ensureDocFlow(order);
@@ -424,6 +524,10 @@ export function getPayments(order: RawOrder, target: PaymentTarget): RawPayment[
   if (target.type === "depositInvoice") {
     const di = (df.proforma?.depositInvoices ?? []).find((d) => d.id === target.diId);
     return di?.paiements ?? [];
+  }
+  if (target.type === "livraisonProforma") {
+    const pl = (df.packingLists ?? []).find((p) => p.id === target.plId);
+    return (pl?.livraisonProformas ?? []).find((l) => l.id === target.lpId)?.paiements ?? [];
   }
   const pl = (df.packingLists ?? []).find((p) => p.id === target.plId);
   return pl?.paiements ?? [];
@@ -447,6 +551,20 @@ function withPayments(order: RawOrder, target: PaymentTarget, payments: RawPayme
           di.id === target.diId ? { ...di, paiements: payments } : di,
         ),
       },
+    });
+  if (target.type === "livraisonProforma")
+    return withDocFlow(order, {
+      ...df,
+      packingLists: (df.packingLists ?? []).map((pl) =>
+        pl.id !== target.plId
+          ? pl
+          : {
+              ...pl,
+              livraisonProformas: (pl.livraisonProformas ?? []).map((lp) =>
+                lp.id === target.lpId ? { ...lp, paiements: payments } : lp,
+              ),
+            },
+      ),
     });
   return withDocFlow(order, {
     ...df,

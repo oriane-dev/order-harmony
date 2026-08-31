@@ -121,6 +121,7 @@ export function OrderDetailContent({ order: initialOrder, entity }: { order: Ord
               <div className="flex items-center gap-3">
                 <h1 className="font-serif text-4xl">{order.number}</h1>
                 <StatusChip status={order.status} />
+                {order.shipmentStatus && <StatusChip status={order.shipmentStatus} />}
                 {isArchived && (
                   <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
                     Archivée

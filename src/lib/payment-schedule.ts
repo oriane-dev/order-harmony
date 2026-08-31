@@ -60,6 +60,30 @@ function firstFactureOf(order: RawOrder): RawFacture | undefined {
   return first;
 }
 
+// Toutes les « pro formas pour livraison » de la commande (parties appelées du
+// Before Shipment), avec leur montant, date d'échéance et total payé.
+export function livraisonProformasOf(
+  order: RawOrder,
+): { id: string; montant: number; dueDate: string; paid: number }[] {
+  const out: { id: string; montant: number; dueDate: string; paid: number }[] = [];
+  for (const pl of order.docFlow?.packingLists ?? []) {
+    for (const lp of pl.livraisonProformas ?? []) {
+      out.push({
+        id: lp.id,
+        montant: lp.montant ?? 0,
+        dueDate: lp.dueDate ?? "",
+        paid: (lp.paiements ?? []).reduce((a, p) => a + (p.montant ?? 0), 0),
+      });
+    }
+  }
+  return out;
+}
+
+// Total réellement payé sur les pro formas pour livraison (before shipment appelé).
+export function livraisonProformaPaidOf(order: RawOrder): number {
+  return livraisonProformasOf(order).reduce((a, lp) => a + lp.paid, 0);
+}
+
 // Renvoie les échéances de paiement de la commande, dates calculées et restant à
 // payer imputé. Renvoie [] si le fournisseur n'a pas de conditions complètes (~100 %)
 // ou si la commande n'a pas de montant — dans ce cas l'appelant retombe sur un
@@ -80,38 +104,39 @@ export function computeSupplierSchedule(
   const hasFacture = !!firstFacture;
   const factureDate = firstFacture?.docDate || delivery;
 
-  const insts: Installment[] = conds.map((c, i) => {
+  // 1) Échéances issues des conditions (acompte, net X, post-pro forma). Le Before
+  //    Shipment est agrégé à part pour être scindé en "appelé" + "reste".
+  const conditionInsts: Installment[] = [];
+  let beforeShipTotal = 0;
+  conds.forEach((c, i) => {
     const amount = (montant * (c.percent ?? 0)) / 100;
     const days = c.daysAfterEvent ?? 0;
     const id = c.id || `c${i}`;
     if (c.triggerType === "date_order") {
-      // Déclenché par la pro forma. daysAfterOrder = 0 → acompte à la date de la pro
-      // forma ; > 0 → échéance X jours APRÈS la date de la pro forma.
-      const daysAfterProforma = c.daysAfterOrder ?? 0;
-      if (daysAfterProforma > 0) {
-        return {
+      const dao = c.daysAfterOrder ?? 0;
+      if (dao > 0) {
+        conditionInsts.push({
           id,
           kind: "post_proforma",
-          label: `Solde ${c.percent}% (net ${daysAfterProforma}j pro forma)`,
-          date: addDaysIso(proformaDate, daysAfterProforma),
+          label: `Solde ${c.percent}% (net ${dao}j pro forma)`,
+          date: addDaysIso(proformaDate, dao),
           amount,
           remaining: amount,
           estimated: false,
-        };
+        });
+      } else {
+        conditionInsts.push({
+          id,
+          kind: "deposit",
+          label: `Acompte ${c.percent}%`,
+          date: proformaDate,
+          amount,
+          remaining: amount,
+          estimated: false,
+        });
       }
-      return {
-        id,
-        kind: "deposit",
-        label: `Acompte ${c.percent}%`,
-        date: proformaDate,
-        amount,
-        remaining: amount,
-        estimated: false,
-      };
-    }
-    if (days > 0) {
-      // Solde net X → date de livraison + X jours
-      return {
+    } else if (days > 0) {
+      conditionInsts.push({
         id,
         kind: "net_x",
         label: `Solde ${c.percent}% (net ${days}j)`,
@@ -119,29 +144,56 @@ export function computeSupplierSchedule(
         amount,
         remaining: amount,
         estimated: false,
-      };
+      });
+    } else {
+      beforeShipTotal += amount; // before shipment (event, 0 jour)
     }
-    // Before shipment → déclenché par la 1re facture ; estimé à la livraison sinon
+  });
+
+  // 2) Before Shipment APPELÉ via les pro formas pour livraison (chacune avec sa date
+  //    d'échéance et ses propres paiements).
+  const lps = livraisonProformasOf(order).filter((lp) => lp.montant > 0);
+  let calledTotal = 0;
+  const lpInsts: Installment[] = lps.map((lp) => {
+    calledTotal += lp.montant;
     return {
-      id,
+      id: `lp:${lp.id}`,
       kind: "before_shipment",
-      label: `Before shipment ${c.percent}%`,
-      date: hasFacture ? factureDate : delivery,
-      amount,
-      remaining: amount,
-      estimated: !hasFacture,
+      label: "Before shipment (demandé)",
+      date: lp.dueDate || factureDate || delivery,
+      amount: lp.montant,
+      remaining: Math.max(0, lp.montant - lp.paid),
+      estimated: false,
     };
   });
 
-  // waterfall : imputer le total payé aux échéances par ordre chronologique
-  const dated = insts.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
-  let paidLeft = paidOfOrder(order);
+  // 3) Reste du Before Shipment non encore appelé → prévisionnel (conditions).
+  const uncalled = Math.max(0, beforeShipTotal - calledTotal);
+  if (uncalled > 0.01) {
+    conditionInsts.push({
+      id: "bs-uncalled",
+      kind: "before_shipment",
+      label: "Before shipment (prévu)",
+      date: hasFacture ? factureDate : delivery,
+      amount: uncalled,
+      remaining: uncalled,
+      estimated: !hasFacture,
+    });
+  }
+
+  // 4) Waterfall du pool général (acompte pro forma, paiements livraison/facture ;
+  //    PAS les paiements des pro formas pour livraison, imputés à leur propre échéance)
+  //    sur les échéances issues des conditions, par ordre chronologique.
+  const dated = conditionInsts.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  let pool = paidOfOrder(order);
   for (const it of dated) {
-    const cover = Math.min(paidLeft, it.amount);
-    paidLeft -= cover;
+    const cover = Math.min(pool, it.amount);
+    pool -= cover;
     it.remaining = it.amount - cover;
   }
-  return dated;
+
+  // 5) Fusion (échéances conditions + pro formas livraison) triées par date.
+  return [...dated, ...lpInsts].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 }
 
 // Index nom de fournisseur (minuscule) → fiche fournisseur, pour retrouver les

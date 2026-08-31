@@ -51,6 +51,8 @@ const STATUS_OPTIONS: { value: OrderStatus; label: string }[] = [
   { value: "confirmed", label: "Commande confirmée" },
   { value: "deposit_to_pay", label: "Deposit à régler" },
   { value: "deposit_paid", label: "Deposit payé" },
+  { value: "expedition_to_pay", label: "Expédition à payer" },
+  { value: "facture_paid", label: "Facture payée" },
   { value: "invoice_to_pay", label: "Facture à payer" },
   { value: "partially_invoiced", label: "Facturé partiellement" },
   { value: "closed", label: "Clôturé" },
@@ -73,10 +75,12 @@ const STATUS_RANK: Record<OrderStatus, number> = {
   confirmed: 0,
   deposit_to_pay: 1,
   deposit_paid: 2,
+  expedition_to_pay: 3,
   invoice_to_pay: 3,
-  partially_invoiced: 4,
-  closed: 5,
-  error: 6,
+  facture_paid: 4,
+  partially_invoiced: 5,
+  closed: 6,
+  error: 7,
 };
 
 export function OrdersListPage({ entity }: { entity: Entity }) {
@@ -417,7 +421,10 @@ export function OrdersListPage({ entity }: { entity: Entity }) {
                       {seasonById.get(o.id) || <span className="text-muted-foreground">—</span>}
                     </td>
                     <td className="px-3 py-3.5">
-                      <StatusChip status={o.status} />
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <StatusChip status={o.status} />
+                        {o.shipmentStatus && <StatusChip status={o.shipmentStatus} />}
+                      </div>
                     </td>
                     <td className="px-3 py-3.5 text-right font-serif text-base num">
                       {shortMoney(o.totals.ordered, o.currency)}

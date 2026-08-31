@@ -47,11 +47,24 @@ export interface RawFacture {
   creditNotes?: RawCreditNote[]; // avoirs reducing this invoice
 }
 
+// « Pro forma pour livraison » — une demande de paiement partielle du Before Shipment,
+// reçue (souvent par mail) avant la facture définitive. Document PDF OU image, avec un
+// montant et une date d'échéance obligatoires, et sa/ses preuve(s) de paiement.
+export interface RawLivraisonProforma {
+  id: string;
+  pdf?: RawPdf | null; // PDF ou image (capture d'écran, etc.)
+  montant?: number; // montant demandé (obligatoire)
+  dueDate?: string; // ISO — date de paiement / échéance (obligatoire)
+  paiements?: RawPayment[]; // preuve(s) de paiement
+}
+
 export interface RawPackingList {
   id: string;
   packingListPdf?: RawPdf | null;
   paiements?: RawPayment[];
   factures?: RawFacture[];
+  // demandes de paiement partielles du Before Shipment reçues pour cette livraison
+  livraisonProformas?: RawLivraisonProforma[];
   // legacy flat shape, still populated alongside factures[] on real rows
   facturePdf?: RawPdf | null;
   factureAmount?: number;

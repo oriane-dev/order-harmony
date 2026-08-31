@@ -130,6 +130,10 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
         ...(df.proforma?.paiements ?? []),
         ...(df.proforma?.depositInvoices ?? []).flatMap((di) => di.paiements ?? []),
         ...(df.packingLists ?? []).flatMap((pl) => pl.paiements ?? []),
+        // paiements des pro formas pour livraison (before shipment appelé)
+        ...(df.packingLists ?? []).flatMap((pl) =>
+          (pl.livraisonProformas ?? []).flatMap((lp) => lp.paiements ?? []),
+        ),
         ...(df.factureDefinitive?.paiements ?? []),
       ];
       for (const p of payments) {

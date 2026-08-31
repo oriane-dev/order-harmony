@@ -629,6 +629,108 @@ function FactureRow({
   );
 }
 
+/* ── Pro forma pour livraison (before shipment partiel, demandé par le fournisseur) ─ */
+
+function LivraisonProformaBlock({
+  order,
+  pl,
+  currency,
+  mutation,
+}: {
+  order: RawOrder;
+  pl: RawPackingList;
+  currency: string;
+  mutation: ReturnType<typeof useOrderMutation>;
+}) {
+  const lps = pl.livraisonProformas ?? [];
+  const fileRef = useRef<HTMLInputElement>(null);
+  return (
+    <div className="rounded-md border border-dashed border-border bg-surface p-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
+          Pro forma pour livraison
+        </span>
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".pdf,image/*"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) mutation.mutate((o) => M.addLivraisonProformaWithFile(o, pl.id, f));
+            e.target.value = "";
+          }}
+        />
+        <button
+          onClick={() => fileRef.current?.click()}
+          className="inline-flex items-center gap-1 text-xs text-accent hover:underline"
+        >
+          <Plus className="size-3" /> Ajouter (PDF ou image)
+        </button>
+      </div>
+      {lps.length === 0 && (
+        <div className="text-xs text-muted-foreground">
+          Demande de paiement partielle du Before Shipment (ex. capture d'un mail du fournisseur).
+        </div>
+      )}
+      {lps.map((lp) => (
+        <div key={lp.id} className="bg-surface-2 rounded-md px-3 py-2 space-y-2">
+          <div className="flex items-center gap-3 text-sm flex-wrap">
+            {lp.pdf ? (
+              <a
+                href={lp.pdf.url}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-accent hover:underline truncate max-w-[160px]"
+              >
+                <Paperclip className="size-3.5 shrink-0" /> {lp.pdf.name}
+              </a>
+            ) : (
+              <span className="text-xs text-muted-foreground">Document</span>
+            )}
+            <div className="flex items-center gap-1.5 text-xs">
+              <span className="text-muted-foreground">Montant</span>
+              <AmountField
+                value={lp.montant}
+                currency={currency}
+                busy={mutation.isPending}
+                onSave={(v) =>
+                  mutation.mutate((o) => M.setLivraisonProformaMontant(o, pl.id, lp.id, v))
+                }
+              />
+            </div>
+            <DateField
+              label="Échéance"
+              value={lp.dueDate}
+              busy={mutation.isPending}
+              onSave={(v) => mutation.mutate((o) => M.setLivraisonProformaDueDate(o, pl.id, lp.id, v))}
+            />
+            <span className="flex-1" />
+            <button
+              onClick={() => mutation.mutate((o) => M.removeLivraisonProforma(o, pl.id, lp.id))}
+              className="text-muted-foreground hover:text-destructive"
+              aria-label="Supprimer la pro forma pour livraison"
+            >
+              <Trash2 className="size-3.5" />
+            </button>
+          </div>
+          <div>
+            <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1">
+              Preuve de paiement
+            </div>
+            <PaymentsSection
+              order={order}
+              target={{ type: "livraisonProforma", plId: pl.id, lpId: lp.id }}
+              currency={currency}
+              mutation={mutation}
+            />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /* ── One packing list ─────────────────────────────────────────────────── */
 
 function PackingListCard({
@@ -646,6 +748,7 @@ function PackingListCard({
   const newFactureRef = useRef<HTMLInputElement>(null);
   return (
     <div className="card-elev p-4 space-y-3">
+      <LivraisonProformaBlock order={order} pl={pl} currency={currency} mutation={mutation} />
       <div className="flex items-center justify-between">
         <PdfSlot
           pdf={pl.packingListPdf}

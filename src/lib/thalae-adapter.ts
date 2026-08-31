@@ -2,7 +2,15 @@
 // the Ledger UI components already render. See PROMPT.md and the migration plan for
 // the real-data audit this derivation logic is grounded in.
 
-import type { Alert, Currency, DocRef, Order, Party, TimelineEvent } from "@/lib/ledger-types";
+import type {
+  Alert,
+  Currency,
+  DocRef,
+  Order,
+  Party,
+  ShipmentStatus,
+  TimelineEvent,
+} from "@/lib/ledger-types";
 import type { RawFacture, RawOrder, RawPackingList, RawPdf } from "@/lib/thalae-types";
 import { seasonOf } from "@/lib/season";
 
@@ -121,6 +129,8 @@ export function rawOrderToLedgerOrder(
   let deliveryInvoiceCount = 0; // nb de factures rattachées à des livraisons
   let hasFactureDefinitive = false; // une facture définitive est renseignée
   let paymentWithoutInvoice = false; // une livraison a un paiement mais aucune facture
+  let livraisonProformaCount = 0; // nb de « pro formas pour livraison » (before shipment)
+  let anyLivraisonUnpaid = false; // au moins une pro forma pour livraison reste à payer
 
   const df = row.docFlow;
 
@@ -260,10 +270,22 @@ export function rawOrderToLedgerOrder(
     invoiced += plInvoiced;
     paid += plPaid;
     deliveryInvoiceCount += invoices.length;
-    if (invoices.length === 0) {
+    const hasLivraisonProforma = (pl.livraisonProformas?.length ?? 0) > 0;
+    // une livraison avec une « pro forma pour livraison » mais pas encore de facture
+    // est normale (paiement demandé avant expédition) → pas d'anomalie « facture manquante »
+    if (invoices.length === 0 && !hasLivraisonProforma) {
       missingInvoiceCount += 1;
       // a delivery that carries a payment but no facture — the docFlow anomaly
       if (plPaid > 0) paymentWithoutInvoice = true;
+    }
+    // pro formas pour livraison (before shipment appelé) — leurs paiements sont réels
+    for (const lp of pl.livraisonProformas ?? []) {
+      const lpPaid = (lp.paiements ?? []).reduce((a, p) => a + num(p.montant), 0);
+      paid += lpPaid;
+      if (num(lp.montant) > 0) {
+        livraisonProformaCount += 1;
+        if (lpPaid < num(lp.montant) * 0.99) anyLivraisonUnpaid = true;
+      }
     }
 
     docs.push({
@@ -430,20 +452,23 @@ export function rawOrderToLedgerOrder(
     // clôture manuelle par l'utilisateur — prime sur la grille calculée
     status = "closed";
   } else if (side === "payable") {
-    // ── FOURNISSEURS : grille complète (acompte → facture) ──
+    // ── FOURNISSEURS : axe PAIEMENT (acompte → pro forma livraison / facture) ──
+    const hasLivraisonProforma = livraisonProformaCount > 0;
     if (isDocflowError) {
       status = "error";
-    } else if (!hasProforma && !hasInvoice) {
-      status = "confirmed";
-    } else if (hasProforma && !hasInvoice && !depositPaid) {
+    } else if (hasProforma && !depositPaid && !hasLivraisonProforma && !hasInvoice) {
+      // stade acompte : pro forma initiale seule, acompte non réglé
       status = "deposit_to_pay";
-    } else if (hasProforma && !hasInvoice && depositPaid) {
-      status = "deposit_paid";
+    } else if (hasLivraisonProforma) {
+      // stade livraison : piloté par les pro formas pour livraison (before shipment)
+      status = anyLivraisonUnpaid ? "expedition_to_pay" : "facture_paid";
     } else if (hasInvoice) {
-      // facture présente (avec ou sans pro forma) : on solde sur les factures
+      // facture présente sans pro forma pour livraison : ancienne grille (rétrocompat)
       if (!invoicePaid) status = "invoice_to_pay";
       else if (invoicedMatchesOrder) status = "closed";
       else status = "partially_invoiced";
+    } else if (hasProforma) {
+      status = depositPaid ? "deposit_paid" : "deposit_to_pay";
     } else {
       status = "confirmed";
     }
@@ -453,6 +478,18 @@ export function rawOrderToLedgerOrder(
     else if (!invoicePaid) status = "invoice_to_pay";
     else if (invoicedMatchesOrder) status = "closed";
     else status = "partially_invoiced";
+  }
+
+  // Axe EXPÉDITION (fournisseurs) — basé sur le total facturé (factures reçues) par
+  // rapport au montant commandé. Indépendant de l'axe paiement.
+  let shipmentStatus: ShipmentStatus | undefined;
+  if (side === "payable") {
+    shipmentStatus =
+      invoiced <= 0.01
+        ? "not_shipped"
+        : invoiced < ordered * 0.99
+          ? "partially_shipped"
+          : "fully_shipped";
   }
 
   const progress = row.cloture
@@ -541,6 +578,7 @@ export function rawOrderToLedgerOrder(
     // a manually-closed order is considered settled — hide its alerts everywhere
     alerts: row.cloture ? [] : alerts,
     archived: Boolean(row.archived),
+    shipmentStatus,
   };
 }
 

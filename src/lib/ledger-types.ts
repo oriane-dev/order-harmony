@@ -13,14 +13,23 @@ export type DocKind =
   | "payment"
   | "transfer";
 
+// Statut de PAIEMENT (axe paiement)
 export type OrderStatus =
   | "confirmed" // aucun document (ni pro forma ni facture)
   | "deposit_to_pay" // pro forma ajoutée, acompte pas encore réglé (fournisseurs)
-  | "deposit_paid" // pro forma + acompte réglé, aucune facture (fournisseurs)
+  | "deposit_paid" // pro forma + acompte réglé, aucune livraison (fournisseurs)
+  | "expedition_to_pay" // une pro forma pour livraison est à régler (fournisseurs)
+  | "facture_paid" // pro forma(s) pour livraison réglée(s) (fournisseurs)
   | "invoice_to_pay" // une facture est présente mais pas entièrement payée
   | "partially_invoiced" // facture payée mais le total facturé ≠ montant commandé
   | "closed" // tout facturé au bon montant et payé
   | "error"; // anomalie docFlow (fournisseurs) : paiement de livraison sans facture
+
+// Statut d'EXPÉDITION (axe expédition, fournisseurs) — basé sur les factures reçues
+export type ShipmentStatus =
+  | "not_shipped" // aucune facture reçue
+  | "partially_shipped" // facture(s) reçue(s), montant < total attendu
+  | "fully_shipped"; // facture(s) couvrant la totalité attendue
 
 export interface Party {
   id: string;
@@ -99,6 +108,8 @@ export interface Order {
   timeline: TimelineEvent[];
   alerts: Alert[];
   archived: boolean; // masquée de l'échéancier et du calendrier (non supprimée)
+  // Axe expédition (fournisseurs uniquement) — affiché À CÔTÉ de `status` (paiement).
+  shipmentStatus?: ShipmentStatus;
 }
 
 export function findOrder(orders: Order[], id: string): Order | undefined {

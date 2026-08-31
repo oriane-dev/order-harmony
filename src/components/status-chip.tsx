@@ -17,10 +17,36 @@ const map: Record<string, { label: string; cls: string; dot: string }> = {
     cls: "bg-info/15 text-info",
     dot: "bg-info",
   },
+  expedition_to_pay: {
+    label: "Expédition à payer",
+    cls: "bg-warning/15 text-warning-foreground",
+    dot: "bg-warning",
+  },
+  facture_paid: {
+    label: "Facture payée",
+    cls: "bg-success/15 text-success",
+    dot: "bg-success",
+  },
   invoice_to_pay: {
     label: "Facture à payer",
     cls: "bg-warning/15 text-warning-foreground",
     dot: "bg-warning",
+  },
+  // axe expédition (fournisseurs)
+  not_shipped: {
+    label: "Pas expédié",
+    cls: "bg-muted text-muted-foreground",
+    dot: "bg-muted-foreground",
+  },
+  partially_shipped: {
+    label: "Expédié partiellement",
+    cls: "bg-info/10 text-info",
+    dot: "bg-info",
+  },
+  fully_shipped: {
+    label: "Expédié totalement",
+    cls: "bg-success/15 text-success",
+    dot: "bg-success",
   },
   partially_invoiced: {
     label: "Facturé partiellement",
