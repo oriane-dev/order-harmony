@@ -2,10 +2,12 @@
 // commandes. Partagé par la page Échéancier ET le tableau de bord pour qu'ils
 // s'appuient exactement sur le même calcul.
 
+import * as XLSX from "xlsx";
 import type { Order } from "@/lib/ledger-types";
 import type { RawOrder, RawSupplier } from "@/lib/thalae-types";
 import { computeSupplierSchedule, supplierByNameIndex } from "@/lib/payment-schedule";
 import { seasonOf } from "@/lib/season";
+import { fmtDate } from "@/lib/format";
 
 export type Category = "Acompte" | "Before shipment" | "Solde" | "Facture";
 
@@ -167,4 +169,36 @@ export function isDueWithin(item: DueItem, period: Period): boolean {
 // Idem mais strictement dans la période (utilisé pour l'affichage détaillé).
 export function isInPeriod(item: DueItem, period: Period): boolean {
   return !!item.date && item.date >= period.start && item.date <= period.end;
+}
+
+// Export Excel d'une liste d'échéances (reprend les colonnes du tableau + une ligne
+// TOTAL en bas). Téléchargement déclenché par l'utilisateur.
+export function exportEcheancesExcel(items: DueItem[], filename = "echeances.xlsx"): void {
+  if (!items.length) {
+    alert("Aucune échéance sélectionnée à exporter.");
+    return;
+  }
+  const rows: Record<string, string | number>[] = items.map((d) => ({
+    Commande: d.order.number,
+    Contrepartie: d.order.party.name,
+    Côté: d.sideLabel,
+    Saison: d.season || "",
+    Type: d.label,
+    Échéance: d.date ? fmtDate(d.date) : "",
+    "Montant dû (€)": Math.round(d.amount),
+  }));
+  const total = items.reduce((a, d) => a + d.amount, 0);
+  rows.push({
+    Commande: "",
+    Contrepartie: "",
+    Côté: "",
+    Saison: "",
+    Type: "TOTAL",
+    Échéance: "",
+    "Montant dû (€)": Math.round(total),
+  });
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Échéances");
+  XLSX.writeFile(wb, filename);
 }

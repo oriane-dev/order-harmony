@@ -11,7 +11,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
+import { ChevronUp, ChevronDown, ChevronsUpDown, Download } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Button } from "@/components/ui/button";
 import {
   ordersQueryOptions,
   customerOrdersQueryOptions,
@@ -25,6 +27,7 @@ import {
   currentWeek,
   currentMonth,
   isInPeriod,
+  exportEcheancesExcel,
   type DueItem,
   type Category,
 } from "@/lib/echeancier";
@@ -163,6 +166,29 @@ function EcheancesPage() {
     .filter((d) => d.side === "receivable")
     .reduce((a, d) => a + d.amount, 0);
 
+  // Deux blocs : demandes CONFIRMÉES (date précise, non estimée) vs PRÉVISIONNEL
+  // (dates estimées ou sans date encore fixée).
+  const confirmedRows = rows.filter((d) => !d.estimated && !!d.date);
+  const previsionnelRows = rows.filter((d) => d.estimated || !d.date);
+
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const toggleSelect = (key: string) =>
+    setSelected((s) => {
+      const n = new Set(s);
+      if (n.has(key)) n.delete(key);
+      else n.add(key);
+      return n;
+    });
+  const toggleSelectAll = (items: DueItem[], on: boolean) =>
+    setSelected((s) => {
+      const n = new Set(s);
+      for (const d of items) if (on) n.add(d.key);
+      else n.delete(d.key);
+      return n;
+    });
+  const selectedItems = rows.filter((d) => selected.has(d.key));
+  const selectedTotal = selectedItems.reduce((a, d) => a + d.amount, 0);
+
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     else {
@@ -199,6 +225,109 @@ function EcheancesPage() {
           <Icon className={cn("size-3 shrink-0", !active && "opacity-40")} />
         </button>
       </div>
+    );
+  };
+
+  const renderBlock = (title: string, items: DueItem[], hint: string) => {
+    const total = items.reduce((a, d) => a + d.amount, 0);
+    const selTotal = items.filter((d) => selected.has(d.key)).reduce((a, d) => a + d.amount, 0);
+    const allSelected = items.length > 0 && items.every((d) => selected.has(d.key));
+    return (
+      <section className="space-y-2">
+        <div>
+          <h2 className="font-serif text-2xl">{title}</h2>
+          <p className="text-xs text-muted-foreground">{hint}</p>
+        </div>
+        <div className="card-elev overflow-hidden">
+          <div className="flex items-center gap-3 px-5 py-3 border-b border-border text-[10px] tracking-widest text-muted-foreground">
+            <Checkbox
+              checked={allSelected}
+              onCheckedChange={(v) => toggleSelectAll(items, v === true)}
+              aria-label="Tout sélectionner"
+            />
+            <div className="grid grid-cols-12 gap-3 flex-1">
+              <Th label="Commande" k="number" className="col-span-2" />
+              <Th label="Contrepartie" k="party" className="col-span-3" />
+              <Th label="Saison" k="season" className="col-span-1" />
+              <Th label="Type" k="type" className="col-span-2" />
+              <Th label="Échéance" k="date" className="col-span-2" />
+              <Th label="Montant dû" k="amount" align="right" className="col-span-2 text-right" />
+            </div>
+          </div>
+          <div className="divide-y divide-border">
+            {items.length === 0 && (
+              <div className="px-5 py-6 text-sm text-muted-foreground text-center">
+                Aucune échéance dans ce bloc.
+              </div>
+            )}
+            {items.map((d) => (
+              <div
+                key={d.key}
+                className={cn(
+                  "flex items-center gap-3 px-5 hover:bg-surface-2 transition-colors",
+                  selected.has(d.key) && "bg-accent/5",
+                )}
+              >
+                <Checkbox
+                  checked={selected.has(d.key)}
+                  onCheckedChange={() => toggleSelect(d.key)}
+                  aria-label="Sélectionner l'échéance"
+                />
+                <OrderLink
+                  order={d.order}
+                  className="grid grid-cols-12 gap-3 py-4 items-center flex-1 min-w-0"
+                >
+                  <div className="col-span-2">
+                    <div className="text-sm font-medium">{d.order.number}</div>
+                    <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                      {d.sideLabel}
+                    </div>
+                  </div>
+                  <div className="col-span-3 text-sm truncate">{d.order.party.name}</div>
+                  <div className="col-span-1 text-xs num">
+                    {d.season || <span className="text-muted-foreground">—</span>}
+                  </div>
+                  <div className="col-span-2">
+                    <span
+                      className={cn(
+                        "inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium whitespace-nowrap",
+                        d.category === "Acompte"
+                          ? "bg-info/10 text-info"
+                          : d.category === "Facture"
+                            ? "bg-warning/15 text-warning-foreground"
+                            : "bg-surface-2 text-foreground border border-border",
+                      )}
+                    >
+                      {d.label}
+                    </span>
+                  </div>
+                  <div className="col-span-2 text-sm num">
+                    {d.date ? (
+                      <span className={cn(d.estimated && "text-muted-foreground")}>
+                        {fmtDate(d.date)}
+                        {d.estimated && " (prév.)"}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">date à définir</span>
+                    )}
+                  </div>
+                  <div className="col-span-2 text-right font-serif text-lg num text-warning-foreground">
+                    {shortMoney(d.amount, d.order.currency)}
+                  </div>
+                </OrderLink>
+              </div>
+            ))}
+          </div>
+          <div className="flex items-center justify-between px-5 py-3 border-t border-border bg-surface-2/40 text-sm">
+            <span className="text-muted-foreground">
+              Total sélectionné : <span className="num font-medium">{shortMoney(selTotal, "EUR")}</span>
+            </span>
+            <span>
+              Total échéances : <span className="font-serif text-lg num">{shortMoney(total, "EUR")}</span>
+            </span>
+          </div>
+        </div>
+      </section>
     );
   };
 
@@ -286,68 +415,40 @@ function EcheancesPage() {
           </div>
         </div>
 
-        <div className="card-elev overflow-hidden">
-          <div className="grid grid-cols-12 gap-3 px-5 py-3 border-b border-border text-[10px] tracking-widest text-muted-foreground">
-            <Th label="Commande" k="number" className="col-span-2" />
-            <Th label="Contrepartie" k="party" className="col-span-3" />
-            <Th label="Saison" k="season" className="col-span-1" />
-            <Th label="Type" k="type" className="col-span-2" />
-            <Th label="Échéance" k="date" className="col-span-2" />
-            <Th label="Montant dû" k="amount" align="right" className="col-span-2 text-right" />
-          </div>
-          <div className="divide-y divide-border">
-            {rows.length === 0 && (
-              <div className="px-5 py-8 text-sm text-muted-foreground text-center">
-                Aucune échéance — tout est réglé.
-              </div>
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-sm text-muted-foreground">
+            {selectedItems.length > 0 ? (
+              <>
+                <span className="font-medium text-foreground">{selectedItems.length}</span>{" "}
+                sélectionnée{selectedItems.length > 1 ? "s" : ""} · Total sélectionné{" "}
+                <span className="num font-medium text-foreground">
+                  {shortMoney(selectedTotal, "EUR")}
+                </span>
+              </>
+            ) : (
+              "Coche des échéances pour les additionner et les exporter en Excel."
             )}
-            {rows.map((d) => (
-              <OrderLink
-                key={d.key}
-                order={d.order}
-                className="grid grid-cols-12 gap-3 px-5 py-4 items-center hover:bg-surface-2 transition-colors"
-              >
-                <div className="col-span-2">
-                  <div className="text-sm font-medium">{d.order.number}</div>
-                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                    {d.sideLabel}
-                  </div>
-                </div>
-                <div className="col-span-3 text-sm truncate">{d.order.party.name}</div>
-                <div className="col-span-1 text-xs num">
-                  {d.season || <span className="text-muted-foreground">—</span>}
-                </div>
-                <div className="col-span-2">
-                  <span
-                    className={cn(
-                      "inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium whitespace-nowrap",
-                      d.category === "Acompte"
-                        ? "bg-info/10 text-info"
-                        : d.category === "Facture"
-                          ? "bg-warning/15 text-warning-foreground"
-                          : "bg-surface-2 text-foreground border border-border",
-                    )}
-                  >
-                    {d.label}
-                  </span>
-                </div>
-                <div className="col-span-2 text-sm num">
-                  {d.date ? (
-                    <span className={cn(d.estimated && "text-muted-foreground")}>
-                      {fmtDate(d.date)}
-                      {d.estimated && " (prév.)"}
-                    </span>
-                  ) : (
-                    <span className="text-muted-foreground">date à définir</span>
-                  )}
-                </div>
-                <div className="col-span-2 text-right font-serif text-lg num text-warning-foreground">
-                  {shortMoney(d.amount, d.order.currency)}
-                </div>
-              </OrderLink>
-            ))}
           </div>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={selectedItems.length === 0}
+            onClick={() => exportEcheancesExcel(selectedItems)}
+          >
+            <Download /> Exporter
+          </Button>
         </div>
+
+        {renderBlock(
+          "Demandes confirmées de paiement à effectuer",
+          confirmedRows,
+          "Échéances à date précise (acomptes, pro formas pour livraison, factures) — montant confirmé et daté.",
+        )}
+        {renderBlock(
+          "Autres décaissements prévisionnels",
+          previsionnelRows,
+          "Montants estimés d'après les conditions de paiement (dates prévisionnelles), en attendant une demande précise.",
+        )}
       </div>
     </AppShell>
   );

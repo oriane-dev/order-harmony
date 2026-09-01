@@ -134,7 +134,7 @@ export function computeSupplierSchedule(
           date: addDaysIso(proformaDate, dao),
           amount,
           remaining: amount,
-          estimated: false,
+          estimated: true,
         });
       } else if (hasProformaInitiale) {
         conditionInsts.push({
@@ -158,7 +158,7 @@ export function computeSupplierSchedule(
         date: addDaysIso(delivery, days),
         amount,
         remaining: amount,
-        estimated: false,
+        estimated: true,
       });
     } else {
       beforeShipTotal += amount; // before shipment (event, 0 jour)
@@ -192,7 +192,7 @@ export function computeSupplierSchedule(
       date: hasFacture ? factureDate : delivery,
       amount: uncalled,
       remaining: uncalled,
-      estimated: !hasFacture,
+      estimated: true,
     });
   }
 
