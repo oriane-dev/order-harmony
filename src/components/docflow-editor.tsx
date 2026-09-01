@@ -534,12 +534,14 @@ function FactureRow({
   facture,
   currency,
   mutation,
+  isSupplier,
 }: {
   order: RawOrder;
   plId: string;
   facture: RawFacture;
   currency: string;
   mutation: ReturnType<typeof useOrderMutation>;
+  isSupplier: boolean;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const remaining = M.factureRemaining(order, plId, facture.id);
@@ -589,12 +591,14 @@ function FactureRow({
             }
           />
         </div>
-        <DateField
-          label="Reçue le"
-          value={facture.docDate}
-          busy={mutation.isPending}
-          onSave={(v) => mutation.mutate((o) => M.setFactureDate(o, plId, facture.id, v))}
-        />
+        {isSupplier && (
+          <DateField
+            label="Reçue le"
+            value={facture.docDate}
+            busy={mutation.isPending}
+            onSave={(v) => mutation.mutate((o) => M.setFactureDate(o, plId, facture.id, v))}
+          />
+        )}
         <span className="flex-1" />
         {remaining > 0 ? (
           <button
@@ -738,17 +742,22 @@ function PackingListCard({
   pl,
   currency,
   mutation,
+  isSupplier,
 }: {
   order: RawOrder;
   pl: RawPackingList;
   currency: string;
   mutation: ReturnType<typeof useOrderMutation>;
+  isSupplier: boolean;
 }) {
   const factures = M.getPlFactures(pl);
   const newFactureRef = useRef<HTMLInputElement>(null);
   return (
     <div className="card-elev p-4 space-y-3">
-      <LivraisonProformaBlock order={order} pl={pl} currency={currency} mutation={mutation} />
+      {/* Pro forma pour livraison : concept fournisseur uniquement */}
+      {isSupplier && (
+        <LivraisonProformaBlock order={order} pl={pl} currency={currency} mutation={mutation} />
+      )}
       <div className="flex items-center justify-between">
         <PdfSlot
           pdf={pl.packingListPdf}
@@ -774,6 +783,7 @@ function PackingListCard({
             facture={f}
             currency={currency}
             mutation={mutation}
+            isSupplier={isSupplier}
           />
         ))}
         <input
@@ -1029,6 +1039,7 @@ export function DocflowEditor({
             pl={pl}
             currency={currency}
             mutation={mutation}
+            isSupplier={isSupplier}
           />
         ))}
         {!(df?.packingLists ?? []).length && (
