@@ -14,6 +14,7 @@ import {
 import { ChevronUp, ChevronDown, ChevronsUpDown, Download } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
+import { MultiSelect } from "@/components/ui/multi-select";
 import {
   ordersQueryOptions,
   customerOrdersQueryOptions,
@@ -29,7 +30,6 @@ import {
   isInPeriod,
   exportEcheancesExcel,
   type DueItem,
-  type Category,
 } from "@/lib/echeancier";
 import { shortMoney, fmtDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -78,12 +78,11 @@ function EcheancesPage() {
 
   const search = Route.useSearch();
 
-  const [sideFilter, setSideFilter] = useState<"all" | "payable" | "receivable">(
-    search.cote ?? "all",
-  );
-  const [typeFilter, setTypeFilter] = useState<"all" | Category>("all");
-  const [seasonFilter, setSeasonFilter] = useState<string>("all");
-  const [partyFilter, setPartyFilter] = useState<string>("all");
+  // Filtres multi-sélection : liste vide = « tout ».
+  const [sideFilter, setSideFilter] = useState<string[]>(search.cote ? [search.cote] : []);
+  const [typeFilter, setTypeFilter] = useState<string[]>([]);
+  const [seasonFilter, setSeasonFilter] = useState<string[]>([]);
+  const [partyFilter, setPartyFilter] = useState<string[]>([]);
   const [periodFilter, setPeriodFilter] = useState<"all" | "week" | "month">(search.due ?? "all");
   const [sortKey, setSortKey] = useState<SortKey>("date");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
@@ -105,7 +104,7 @@ function EcheancesPage() {
       Array.from(
         new Set(
           allDue
-            .filter((d) => sideFilter === "all" || d.side === sideFilter)
+            .filter((d) => sideFilter.length === 0 || sideFilter.includes(d.side))
             .map((d) => d.order.party.name)
             .filter(Boolean),
         ),
@@ -116,10 +115,10 @@ function EcheancesPage() {
   const rows = useMemo(() => {
     const filtered = allDue.filter(
       (d) =>
-        (sideFilter === "all" || d.side === sideFilter) &&
-        (typeFilter === "all" || d.category === typeFilter) &&
-        (seasonFilter === "all" || d.season === seasonFilter) &&
-        (partyFilter === "all" || d.order.party.name === partyFilter) &&
+        (sideFilter.length === 0 || sideFilter.includes(d.side)) &&
+        (typeFilter.length === 0 || typeFilter.includes(d.category)) &&
+        (seasonFilter.length === 0 || seasonFilter.includes(d.season)) &&
+        (partyFilter.length === 0 || partyFilter.includes(d.order.party.name)) &&
         // période : semaine = échéances précises uniquement ; mois = tout (prévisionnel)
         (period === null ||
           (isInPeriod(d, period) && (periodFilter !== "week" || !d.estimated))),
@@ -349,54 +348,42 @@ function EcheancesPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <Select value={sideFilter} onValueChange={(v) => setSideFilter(v as typeof sideFilter)}>
-            <SelectTrigger className="w-48">
-              <SelectValue placeholder="Côté" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Fournisseurs et clients</SelectItem>
-              <SelectItem value="payable">Fournisseurs</SelectItem>
-              <SelectItem value="receivable">Clients</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v as typeof typeFilter)}>
-            <SelectTrigger className="w-48">
-              <SelectValue placeholder="Type" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Tous les types</SelectItem>
-              <SelectItem value="Acompte">Acompte</SelectItem>
-              <SelectItem value="Before shipment">Before shipment</SelectItem>
-              <SelectItem value="Solde">Solde (net X)</SelectItem>
-              <SelectItem value="Facture">Facture</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={seasonFilter} onValueChange={setSeasonFilter}>
-            <SelectTrigger className="w-40">
-              <SelectValue placeholder="Saison" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Toutes les saisons</SelectItem>
-              {seasonOptions.map((s) => (
-                <SelectItem key={s} value={s}>
-                  {s}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={partyFilter} onValueChange={setPartyFilter}>
-            <SelectTrigger className="w-56">
-              <SelectValue placeholder="Contrepartie" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Toutes les contreparties</SelectItem>
-              {partyOptions.map((p) => (
-                <SelectItem key={p} value={p}>
-                  {p}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <MultiSelect
+            label="Côté"
+            className="w-44"
+            selected={sideFilter}
+            onChange={setSideFilter}
+            options={[
+              { value: "payable", label: "Fournisseurs" },
+              { value: "receivable", label: "Clients" },
+            ]}
+          />
+          <MultiSelect
+            label="Type"
+            className="w-44"
+            selected={typeFilter}
+            onChange={setTypeFilter}
+            options={[
+              { value: "Acompte", label: "Acompte" },
+              { value: "Before shipment", label: "Before shipment" },
+              { value: "Solde", label: "Solde (net X)" },
+              { value: "Facture", label: "Facture" },
+            ]}
+          />
+          <MultiSelect
+            label="Saison"
+            className="w-40"
+            selected={seasonFilter}
+            onChange={setSeasonFilter}
+            options={seasonOptions.map((s) => ({ value: s, label: s }))}
+          />
+          <MultiSelect
+            label="Contrepartie"
+            className="w-56"
+            selected={partyFilter}
+            onChange={setPartyFilter}
+            options={partyOptions.map((p) => ({ value: p, label: p }))}
+          />
           <Select
             value={periodFilter}
             onValueChange={(v) => setPeriodFilter(v as typeof periodFilter)}
