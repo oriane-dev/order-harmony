@@ -98,6 +98,18 @@ export function computeSupplierSchedule(
   if (conds.length === 0 || montant <= 0 || Math.abs(pctSum - 100) > 0.5) return [];
 
   const df = order.docFlow;
+  const pf = df?.proforma;
+  // Certaines commandes fournisseurs n'ont PAS de deposit (ce n'est pas une erreur) :
+  // aucune pro forma initiale n'est renseignée. Dans ce cas on saute l'acompte et son
+  // montant est reporté sur le Before Shipment (rien n'est perdu dans le prévisionnel).
+  const hasProformaInitiale = !!(
+    pf &&
+    (pf.pdf ||
+      (pf.montant ?? 0) > 0 ||
+      (pf.paiements?.length ?? 0) > 0 ||
+      (pf.depositInvoices?.length ?? 0) > 0 ||
+      pf.docDate)
+  );
   const proformaDate = df?.proforma?.docDate || "";
   const delivery = order.dateLivraison || "";
   const firstFacture = firstFactureOf(order);
@@ -124,7 +136,7 @@ export function computeSupplierSchedule(
           remaining: amount,
           estimated: false,
         });
-      } else {
+      } else if (hasProformaInitiale) {
         conditionInsts.push({
           id,
           kind: "deposit",
@@ -134,6 +146,9 @@ export function computeSupplierSchedule(
           remaining: amount,
           estimated: false,
         });
+      } else {
+        // pas de deposit sur cette commande → le montant est reporté sur le Before Shipment
+        beforeShipTotal += amount;
       }
     } else if (days > 0) {
       conditionInsts.push({

@@ -139,7 +139,8 @@ export function rawOrderToLedgerOrder(
     (hasPdf(df.proforma.pdf) ||
       num(df.proforma.montant) > 0 ||
       (df.proforma.paiements?.length ?? 0) > 0 ||
-      (df.proforma.depositInvoices?.length ?? 0) > 0)
+      (df.proforma.depositInvoices?.length ?? 0) > 0 ||
+      Boolean(df.proforma.docDate))
   ) {
     const pfId = `${row.id}:pf`;
     const pfMontant = num(df.proforma.montant);
