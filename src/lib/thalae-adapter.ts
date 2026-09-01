@@ -451,24 +451,45 @@ export function rawOrderToLedgerOrder(
   if (row.cloture) {
     // clôture manuelle par l'utilisateur — prime sur la grille calculée
     status = "closed";
+  } else if (side === "payable" && CURRENT_SEASONS.has(season)) {
+    // ── FOURNISSEURS, saisons courantes (AW26/PS27/SS27) : NOUVELLE grille ──
+    // Commande → Deposit à régler → Deposit payé → Expédition à payer →
+    // Partiellement facturé → Facture payée → Clôturé.
+    const hasDemande = livraisonProformaCount > 0;
+    const fullyShipped = ordered > 0 && invoiced >= ordered * 0.99;
+    const fullyPaid = ordered > 0 && paid >= ordered * 0.99;
+    if (hasProforma && !depositPaid && !hasDemande && !hasInvoice) {
+      status = "deposit_to_pay";
+    } else if (hasDemande && anyLivraisonUnpaid) {
+      status = "expedition_to_pay";
+    } else if (fullyShipped && fullyPaid) {
+      // facture totale ET tout payé (acompte + demandes) = commande → clôturé direct
+      status = "closed";
+    } else if (hasInvoice) {
+      // demande payée + facture présente (pas encore soldé au total)
+      status = "facture_paid";
+    } else if (hasDemande) {
+      // demande de livraison payée mais pas encore de facture
+      status = "partially_billed";
+    } else if (hasProforma) {
+      status = depositPaid ? "deposit_paid" : "deposit_to_pay";
+    } else {
+      status = "confirmed";
+    }
   } else if (side === "payable") {
-    // ── FOURNISSEURS : axe PAIEMENT (acompte → pro forma livraison / facture) ──
-    const hasLivraisonProforma = livraisonProformaCount > 0;
+    // ── FOURNISSEURS, anciennes saisons : grille d'origine (rétrocompat) ──
     if (isDocflowError) {
       status = "error";
-    } else if (hasProforma && !depositPaid && !hasLivraisonProforma && !hasInvoice) {
-      // stade acompte : pro forma initiale seule, acompte non réglé
+    } else if (!hasProforma && !hasInvoice) {
+      status = "confirmed";
+    } else if (hasProforma && !hasInvoice && !depositPaid) {
       status = "deposit_to_pay";
-    } else if (hasLivraisonProforma) {
-      // stade livraison : piloté par les pro formas pour livraison (before shipment)
-      status = anyLivraisonUnpaid ? "expedition_to_pay" : "facture_paid";
+    } else if (hasProforma && !hasInvoice && depositPaid) {
+      status = "deposit_paid";
     } else if (hasInvoice) {
-      // facture présente sans pro forma pour livraison : ancienne grille (rétrocompat)
       if (!invoicePaid) status = "invoice_to_pay";
       else if (invoicedMatchesOrder) status = "closed";
       else status = "partially_invoiced";
-    } else if (hasProforma) {
-      status = depositPaid ? "deposit_paid" : "deposit_to_pay";
     } else {
       status = "confirmed";
     }

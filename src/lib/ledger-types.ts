@@ -19,7 +19,8 @@ export type OrderStatus =
   | "deposit_to_pay" // pro forma ajoutée, acompte pas encore réglé (fournisseurs)
   | "deposit_paid" // pro forma + acompte réglé, aucune livraison (fournisseurs)
   | "expedition_to_pay" // une pro forma pour livraison est à régler (fournisseurs)
-  | "facture_paid" // pro forma(s) pour livraison réglée(s) (fournisseurs)
+  | "partially_billed" // demande de livraison payée mais pas encore de facture (fournisseurs)
+  | "facture_paid" // pro forma(s) pour livraison réglée(s) + facture (fournisseurs)
   | "invoice_to_pay" // une facture est présente mais pas entièrement payée
   | "partially_invoiced" // facture payée mais le total facturé ≠ montant commandé
   | "closed" // tout facturé au bon montant et payé

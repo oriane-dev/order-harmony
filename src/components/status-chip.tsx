@@ -22,6 +22,11 @@ const map: Record<string, { label: string; cls: string; dot: string }> = {
     cls: "bg-warning/15 text-warning-foreground",
     dot: "bg-warning",
   },
+  partially_billed: {
+    label: "Partiellement facturé",
+    cls: "bg-info/10 text-info",
+    dot: "bg-info",
+  },
   facture_paid: {
     label: "Facture payée",
     cls: "bg-success/15 text-success",
