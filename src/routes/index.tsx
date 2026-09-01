@@ -1,12 +1,26 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useSuspenseQuery } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
-import { KpiCard } from "@/components/kpi-card";
 import { StatusChip } from "@/components/status-chip";
 import { OrderLink } from "@/components/order-link";
-import { summary, globalAlerts } from "@/lib/ledger-types";
-import { ordersQueryOptions, customerOrdersQueryOptions } from "@/lib/data";
+import { globalAlerts } from "@/lib/ledger-types";
+import {
+  ordersQueryOptions,
+  customerOrdersQueryOptions,
+  rawOrdersQueryOptions,
+  rawCustomerOrdersQueryOptions,
+  rawSuppliersQueryOptions,
+} from "@/lib/data";
+import {
+  buildDueItems,
+  currentWeek,
+  currentMonth,
+  isInPeriod,
+  type DueItem,
+} from "@/lib/echeancier";
 import { shortMoney, fmtDate } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import { ArrowUpRight, AlertTriangle } from "lucide-react";
 
 export const Route = createFileRoute("/")({
@@ -23,13 +37,91 @@ export const Route = createFileRoute("/")({
   component: Home,
 });
 
+// Grand onglet Fournisseurs / Clients : restant dû ce mois-ci (prévisionnel global)
+// avec bascule Mois / Semaine. En semaine → seulement les échéances précises saisies.
+// Un clic ouvre l'échéancier filtré sur ce côté + cette période.
+function DuePanel({
+  title,
+  side,
+  items,
+}: {
+  title: string;
+  side: "payable" | "receivable";
+  items: DueItem[];
+}) {
+  const [mode, setMode] = useState<"month" | "week">("month");
+  const period = mode === "week" ? currentWeek() : currentMonth();
+  const total = items
+    .filter(
+      (d) => d.side === side && isInPeriod(d, period) && (mode !== "week" || !d.estimated),
+    )
+    .reduce((a, d) => a + d.amount, 0);
+  return (
+    <Link
+      to="/echeances"
+      search={{ cote: side, due: mode }}
+      className="card-elev p-6 block hover:bg-surface-2 transition-colors"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-sm font-medium">{title}</div>
+        <div
+          className="inline-flex rounded-md border border-border overflow-hidden text-xs"
+          onClick={(e) => e.preventDefault()}
+        >
+          {(["month", "week"] as const).map((m) => (
+            <button
+              key={m}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setMode(m);
+              }}
+              className={cn(
+                "px-3 py-1 transition-colors",
+                mode === m
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:bg-surface-2",
+              )}
+            >
+              {m === "month" ? "Mois" : "Semaine"}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="mt-4 text-xs uppercase tracking-widest text-muted-foreground">
+        {mode === "month" ? "Restant dû ce mois-ci" : "Restant dû cette semaine"}
+      </div>
+      <div className="font-serif text-5xl mt-1 num text-warning-foreground">
+        {shortMoney(total, "EUR")}
+      </div>
+      <div className="mt-3 text-xs text-accent inline-flex items-center gap-1">
+        Voir le détail des échéances <ArrowUpRight className="size-3.5" />
+      </div>
+    </Link>
+  );
+}
+
 function Home() {
   const { data: supplierOrders } = useSuspenseQuery(ordersQueryOptions());
   const { data: customerOrders } = useSuspenseQuery(customerOrdersQueryOptions());
+  const { data: rawSupplierOrders } = useSuspenseQuery(rawOrdersQueryOptions());
+  const { data: rawCustomerOrders } = useSuspenseQuery(rawCustomerOrdersQueryOptions());
+  const { data: rawSuppliers } = useSuspenseQuery(rawSuppliersQueryOptions());
   const orders = [...supplierOrders, ...customerOrders];
-  const s = summary(orders);
   const alerts = globalAlerts(orders);
   const recent = orders.slice(0, 5);
+
+  const dueItems = useMemo(
+    () =>
+      buildDueItems(
+        supplierOrders,
+        customerOrders,
+        rawSupplierOrders,
+        rawCustomerOrders,
+        rawSuppliers,
+      ),
+    [supplierOrders, customerOrders, rawSupplierOrders, rawCustomerOrders, rawSuppliers],
+  );
 
   return (
     <AppShell>
@@ -43,26 +135,9 @@ function Home() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <KpiCard
-            label="Restant dû aux fournisseurs"
-            value={s.outstandingPayable}
-            hint="Dû aux fournisseurs"
-            tone="warning"
-          />
-          <KpiCard
-            label="Restant dû par les clients"
-            value={s.outstandingReceivable}
-            hint="Dû par les clients"
-            tone="warning"
-          />
-          <KpiCard
-            label="Trésorerie versée"
-            value={s.cashPaid}
-            hint="Ce trimestre"
-            tone="positive"
-          />
-          <KpiCard label="Trésorerie attendue" value={s.cashExpected} hint="Sous 60 jours" />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <DuePanel title="Fournisseurs" side="payable" items={dueItems} />
+          <DuePanel title="Clients" side="receivable" items={dueItems} />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

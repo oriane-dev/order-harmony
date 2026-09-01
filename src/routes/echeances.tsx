@@ -12,8 +12,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
-import type { Order } from "@/lib/ledger-types";
-import type { RawOrder } from "@/lib/thalae-types";
 import {
   ordersQueryOptions,
   customerOrdersQueryOptions,
@@ -21,12 +19,26 @@ import {
   rawCustomerOrdersQueryOptions,
   rawSuppliersQueryOptions,
 } from "@/lib/data";
-import { computeSupplierSchedule, supplierByNameIndex } from "@/lib/payment-schedule";
-import { seasonOf, seasonSortKey } from "@/lib/season";
+import { seasonSortKey } from "@/lib/season";
+import {
+  buildDueItems,
+  currentWeek,
+  currentMonth,
+  isInPeriod,
+  type DueItem,
+  type Category,
+} from "@/lib/echeancier";
 import { shortMoney, fmtDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
+type Search = { cote?: "payable" | "receivable"; due?: "week" | "month" };
+
 export const Route = createFileRoute("/echeances")({
+  validateSearch: (search: Record<string, unknown>): Search => ({
+    cote:
+      search.cote === "payable" || search.cote === "receivable" ? search.cote : undefined,
+    due: search.due === "week" || search.due === "month" ? search.due : undefined,
+  }),
   head: () => ({
     meta: [
       { title: "Échéances · Cash Flow Management" },
@@ -40,31 +52,6 @@ export const Route = createFileRoute("/echeances")({
   component: EcheancesPage,
 });
 
-type Category = "Acompte" | "Before shipment" | "Solde" | "Facture";
-
-interface DueItem {
-  key: string;
-  order: Order;
-  side: "payable" | "receivable";
-  sideLabel: string;
-  season: string;
-  category: Category;
-  label: string; // libellé détaillé (ex. "Acompte 30%")
-  amount: number;
-  date: string; // ISO ou ""
-  estimated: boolean;
-}
-
-// première échéance dueDate d'une facture client non soldée (pour dater la ligne)
-function customerDueDate(raw: RawOrder | undefined): string {
-  const dates: string[] = [];
-  for (const pl of raw?.docFlow?.packingLists ?? [])
-    for (const f of pl.factures ?? []) if (f.dueDate) dates.push(f.dueDate);
-  for (const di of raw?.docFlow?.proforma?.depositInvoices ?? []) if (di.dueDate) dates.push(di.dueDate);
-  dates.sort();
-  return dates[0] ?? "";
-}
-
 type SortKey = "number" | "party" | "side" | "season" | "type" | "date" | "amount";
 
 function EcheancesPage() {
@@ -74,112 +61,32 @@ function EcheancesPage() {
   const { data: rawCustomerOrders } = useSuspenseQuery(rawCustomerOrdersQueryOptions());
   const { data: rawSuppliers } = useSuspenseQuery(rawSuppliersQueryOptions());
 
-  const allDue = useMemo(() => {
-    const supIndex = supplierByNameIndex(rawSuppliers);
-    const rawSupById = new Map(rawSupplierOrders.map((o) => [o.id, o]));
-    const rawCustById = new Map(rawCustomerOrders.map((o) => [o.id, o]));
-    const out: DueItem[] = [];
+  const allDue = useMemo(
+    () =>
+      buildDueItems(
+        supplierOrders,
+        customerOrders,
+        rawSupplierOrders,
+        rawCustomerOrders,
+        rawSuppliers,
+      ),
+    [supplierOrders, customerOrders, rawSupplierOrders, rawCustomerOrders, rawSuppliers],
+  );
 
-    for (const o of supplierOrders) {
-      if (o.archived) continue; // les archivées ne sont pas dans l'échéancier
-      const raw = rawSupById.get(o.id);
-      const season = seasonOf(raw?.notes);
-      const sched = raw
-        ? computeSupplierSchedule(raw, supIndex.get((raw.fournisseur ?? "").trim().toLowerCase()))
-        : [];
-      if (sched.length) {
-        for (const inst of sched) {
-          if (inst.remaining <= 0.01 || !inst.date) continue;
-          const category: Category =
-            inst.kind === "deposit"
-              ? "Acompte"
-              : inst.kind === "before_shipment"
-                ? "Before shipment"
-                : "Solde";
-          out.push({
-            key: `${o.id}:${inst.id}`,
-            order: o,
-            side: "payable",
-            sideLabel: "Fournisseur",
-            season,
-            category,
-            label: inst.label,
-            amount: inst.remaining,
-            date: inst.date,
-            estimated: inst.estimated,
-          });
-        }
-      } else {
-        // pas de conditions complètes → affichage simple
-        if (o.status === "deposit_to_pay") {
-          const pf = o.docs.find((d) => d.kind === "proforma");
-          const amount = pf?.remaining ?? pf?.amount ?? o.totals.ordered;
-          if (amount > 0.01)
-            out.push({
-              key: `${o.id}:dep`,
-              order: o,
-              side: "payable",
-              sideLabel: "Fournisseur",
-              season,
-              category: "Acompte",
-              label: "Acompte",
-              amount,
-              date: raw?.docFlow?.proforma?.docDate ?? "",
-              estimated: false,
-            });
-        } else {
-          const gap = o.totals.invoiced - o.totals.paid;
-          if (gap > 0.01)
-            out.push({
-              key: `${o.id}:fac`,
-              order: o,
-              side: "payable",
-              sideLabel: "Fournisseur",
-              season,
-              category: "Facture",
-              label: "Facture",
-              amount: gap,
-              date: "",
-              estimated: false,
-            });
-        }
-      }
-    }
+  const search = Route.useSearch();
 
-    for (const o of customerOrders) {
-      if (o.archived) continue;
-      const raw = rawCustById.get(o.id);
-      const gap = o.totals.invoiced - o.totals.paid;
-      if (gap > 0.01)
-        out.push({
-          key: `${o.id}:fac`,
-          order: o,
-          side: "receivable",
-          sideLabel: "Client",
-          season: seasonOf(raw?.notes),
-          category: "Facture",
-          label: "Facture",
-          amount: gap,
-          date: customerDueDate(raw),
-          estimated: false,
-        });
-    }
-    return out;
-  }, [supplierOrders, customerOrders, rawSupplierOrders, rawCustomerOrders, rawSuppliers]);
-
-  const totalPayable = allDue
-    .filter((d) => d.side === "payable")
-    .reduce((a, d) => a + d.amount, 0);
-  const totalReceivable = allDue
-    .filter((d) => d.side === "receivable")
-    .reduce((a, d) => a + d.amount, 0);
-
-  const [sideFilter, setSideFilter] = useState<"all" | "payable" | "receivable">("all");
+  const [sideFilter, setSideFilter] = useState<"all" | "payable" | "receivable">(
+    search.cote ?? "all",
+  );
   const [typeFilter, setTypeFilter] = useState<"all" | Category>("all");
   const [seasonFilter, setSeasonFilter] = useState<string>("all");
   const [partyFilter, setPartyFilter] = useState<string>("all");
+  const [periodFilter, setPeriodFilter] = useState<"all" | "week" | "month">(search.due ?? "all");
   const [sortKey, setSortKey] = useState<SortKey>("date");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  // Semaine : seulement les échéances PRÉCISES (non estimées) ; mois : tout (prévisionnel).
+  const period = periodFilter === "week" ? currentWeek() : periodFilter === "month" ? currentMonth() : null;
 
   const seasonOptions = useMemo(
     () =>
@@ -209,7 +116,10 @@ function EcheancesPage() {
         (sideFilter === "all" || d.side === sideFilter) &&
         (typeFilter === "all" || d.category === typeFilter) &&
         (seasonFilter === "all" || d.season === seasonFilter) &&
-        (partyFilter === "all" || d.order.party.name === partyFilter),
+        (partyFilter === "all" || d.order.party.name === partyFilter) &&
+        // période : semaine = échéances précises uniquement ; mois = tout (prévisionnel)
+        (period === null ||
+          (isInPeriod(d, period) && (periodFilter !== "week" || !d.estimated))),
     );
     const val = (d: DueItem): string | number => {
       switch (sortKey) {
@@ -242,7 +152,16 @@ function EcheancesPage() {
       }
       return String(va).localeCompare(String(vb)) * dir;
     });
-  }, [allDue, sideFilter, typeFilter, seasonFilter, partyFilter, sortKey, sortDir]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allDue, sideFilter, typeFilter, seasonFilter, partyFilter, periodFilter, sortKey, sortDir]);
+
+  // Totaux alignés sur la vue filtrée (côté, type, saison, contrepartie, période).
+  const totalPayable = rows
+    .filter((d) => d.side === "payable")
+    .reduce((a, d) => a + d.amount, 0);
+  const totalReceivable = rows
+    .filter((d) => d.side === "receivable")
+    .reduce((a, d) => a + d.amount, 0);
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -347,6 +266,19 @@ function EcheancesPage() {
                   {p}
                 </SelectItem>
               ))}
+            </SelectContent>
+          </Select>
+          <Select
+            value={periodFilter}
+            onValueChange={(v) => setPeriodFilter(v as typeof periodFilter)}
+          >
+            <SelectTrigger className="w-44">
+              <SelectValue placeholder="Période" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Toutes les dates</SelectItem>
+              <SelectItem value="week">Cette semaine</SelectItem>
+              <SelectItem value="month">Ce mois-ci</SelectItem>
             </SelectContent>
           </Select>
           <div className="text-sm text-muted-foreground ml-auto">
