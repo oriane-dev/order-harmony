@@ -218,3 +218,87 @@ export function supplierByNameIndex(suppliers: RawSupplier[]): Map<string, RawSu
   for (const s of suppliers) if (s.nom) m.set(s.nom.trim().toLowerCase(), s);
   return m;
 }
+
+// Date d'échéance réelle d'une commande CLIENT = la plus proche dueDate portée par
+// une facture (ou facture d'acompte). "" si aucune.
+export function customerDueDateOf(order: RawOrder): string {
+  const dates: string[] = [];
+  for (const pl of order.docFlow?.packingLists ?? [])
+    for (const f of pl.factures ?? []) if (f.dueDate) dates.push(f.dueDate);
+  for (const di of order.docFlow?.proforma?.depositInvoices ?? [])
+    if (di.dueDate) dates.push(di.dueDate);
+  dates.sort();
+  return dates[0] ?? "";
+}
+
+// Échéancier PRÉVISIONNEL d'une commande CLIENT, d'après les conditions de paiement du
+// client. Déclencheurs :
+//   • Deposit (triggerType "date_order")            → à la DATE de la commande
+//   • Before shipment (event, "before_shipment")    → à la date de LIVRAISON (estimée)
+//   • À réception (event, "reception", 0 jour)       → à la DUE DATE de la facture
+//   • Net X jours (event, "reception", X jours)      → DUE DATE + X jours
+// L'encaissé déjà enregistré est imputé (waterfall) pour ne montrer que le restant.
+export function computeCustomerSchedule(
+  order: RawOrder,
+  customer: RawSupplier | undefined,
+): Installment[] {
+  const conds = customer?.conditionsPaiement ?? [];
+  const montant = order.montant ?? 0;
+  const pctSum = conds.reduce((a, c) => a + (c.percent ?? 0), 0);
+  if (conds.length === 0 || montant <= 0 || Math.abs(pctSum - 100) > 0.5) return [];
+
+  const orderDate = order.dateCommande || order.createdAt || "";
+  const delivery = order.dateLivraison || "";
+  const realDue = customerDueDateOf(order); // due date réelle (facture émise) ou ""
+  // Ancres avec repli sur la date de commande pour ne jamais perdre un montant du
+  // prévisionnel quand la livraison / la due date ne sont pas encore connues.
+  const shipmentAnchor = delivery || orderDate;
+  const receptionAnchor = realDue || delivery || orderDate;
+
+  const insts: Installment[] = conds.map((c, i) => {
+    const amount = (montant * (c.percent ?? 0)) / 100;
+    const id = c.id || `c${i}`;
+    if (c.triggerType === "date_order") {
+      return {
+        id,
+        kind: "deposit",
+        label: `Acompte ${c.percent}%`,
+        date: orderDate,
+        amount,
+        remaining: amount,
+        estimated: true, // prévisionnel (pas de demande formelle côté client)
+      };
+    }
+    if (c.triggerEvent === "before_shipment") {
+      return {
+        id,
+        kind: "before_shipment",
+        label: `Before shipment ${c.percent}%`,
+        date: shipmentAnchor,
+        amount,
+        remaining: amount,
+        estimated: true, // estimé à la date de livraison
+      };
+    }
+    // à réception / net X → ancré sur la due date (réelle si facture émise)
+    const days = c.daysAfterEvent ?? 0;
+    return {
+      id,
+      kind: "net_x",
+      label: days > 0 ? `Net ${days}j ${c.percent}%` : `À réception ${c.percent}%`,
+      date: addDaysIso(receptionAnchor, days),
+      amount,
+      remaining: amount,
+      estimated: !realDue, // confirmé dès qu'une facture porte une vraie due date
+    };
+  });
+
+  const dated = insts.filter((x) => x.date).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  let pool = paidOfOrder(order);
+  for (const it of dated) {
+    const cover = Math.min(pool, it.amount);
+    pool -= cover;
+    it.remaining = it.amount - cover;
+  }
+  return dated;
+}

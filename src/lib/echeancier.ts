@@ -5,7 +5,11 @@
 import * as XLSX from "xlsx";
 import type { Order } from "@/lib/ledger-types";
 import type { RawOrder, RawSupplier } from "@/lib/thalae-types";
-import { computeSupplierSchedule, supplierByNameIndex } from "@/lib/payment-schedule";
+import {
+  computeSupplierSchedule,
+  computeCustomerSchedule,
+  supplierByNameIndex,
+} from "@/lib/payment-schedule";
 import { seasonOf } from "@/lib/season";
 import { fmtDate } from "@/lib/format";
 
@@ -41,8 +45,10 @@ export function buildDueItems(
   rawSupplierOrders: RawOrder[],
   rawCustomerOrders: RawOrder[],
   rawSuppliers: RawSupplier[],
+  rawCustomers: RawSupplier[] = [],
 ): DueItem[] {
   const supIndex = supplierByNameIndex(rawSuppliers);
+  const custIndex = supplierByNameIndex(rawCustomers); // fiches clients (même forme)
   const rawSupById = new Map(rawSupplierOrders.map((o) => [o.id, o]));
   const rawCustById = new Map(rawCustomerOrders.map((o) => [o.id, o]));
   const out: DueItem[] = [];
@@ -113,20 +119,48 @@ export function buildDueItems(
   for (const o of customerOrders) {
     if (o.archived) continue;
     const raw = rawCustById.get(o.id);
-    const gap = o.totals.invoiced - o.totals.paid;
-    if (gap > 0.01)
-      out.push({
-        key: `${o.id}:fac`,
-        order: o,
-        side: "receivable",
-        sideLabel: "Client",
-        season: seasonOf(raw?.notes),
-        category: "Facture",
-        label: "Facture",
-        amount: gap,
-        date: customerDueDate(raw),
-        estimated: false,
-      });
+    const season = seasonOf(raw?.notes);
+    const fiche = raw ? custIndex.get((raw.fournisseur ?? "").trim().toLowerCase()) : undefined;
+    const sched = raw ? computeCustomerSchedule(raw, fiche) : [];
+    if (sched.length) {
+      for (const inst of sched) {
+        if (inst.remaining <= 0.01 || !inst.date) continue;
+        const category: Category =
+          inst.kind === "deposit"
+            ? "Acompte"
+            : inst.kind === "before_shipment"
+              ? "Before shipment"
+              : "Solde";
+        out.push({
+          key: `${o.id}:${inst.id}`,
+          order: o,
+          side: "receivable",
+          sideLabel: "Client",
+          season,
+          category,
+          label: inst.label,
+          amount: inst.remaining,
+          date: inst.date,
+          estimated: inst.estimated,
+        });
+      }
+    } else {
+      // client sans conditions complètes → affichage simple (gap à la due date)
+      const gap = o.totals.invoiced - o.totals.paid;
+      if (gap > 0.01)
+        out.push({
+          key: `${o.id}:fac`,
+          order: o,
+          side: "receivable",
+          sideLabel: "Client",
+          season,
+          category: "Facture",
+          label: "Facture",
+          amount: gap,
+          date: customerDueDate(raw),
+          estimated: false,
+        });
+    }
   }
   return out;
 }

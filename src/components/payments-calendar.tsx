@@ -14,12 +14,17 @@ import {
   ordersQueryOptions,
   rawOrdersQueryOptions,
   rawSuppliersQueryOptions,
+  rawCustomersQueryOptions,
   customerOrdersQueryOptions,
   rawCustomerOrdersQueryOptions,
 } from "@/lib/data";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { seasonOf, seasonSortKey } from "@/lib/season";
-import { computeSupplierSchedule, supplierByNameIndex } from "@/lib/payment-schedule";
+import {
+  computeSupplierSchedule,
+  computeCustomerSchedule,
+  supplierByNameIndex,
+} from "@/lib/payment-schedule";
 import { shortMoney, fmtDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { Entity } from "@/lib/entities";
@@ -104,6 +109,7 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
   // Supplier payment terms (fiches) — used to forecast supplier décaissements (acompte /
   // before shipment / net X days) for orders whose supplier has complete terms.
   const { data: rawSuppliers } = useSuspenseQuery(rawSuppliersQueryOptions());
+  const { data: rawCustomers } = useSuspenseQuery(rawCustomersQueryOptions());
 
   // Re-evaluated on every render, so the "current month" divider tracks the real calendar.
   const now = new Date();
@@ -208,12 +214,52 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
         }
       }
     } else {
-      // Customer: each unpaid invoice's own outstanding, at its due date (échéance).
-      // Invoices whose échéance is already reached go to the "En retard" bucket.
+      // CLIENTS : prévisionnel d'après les conditions de paiement du client (deposit à
+      // la date de commande, before shipment à la livraison, à réception/net X à la due
+      // date + X). Échéance déjà passée non encaissée → « En retard ». Fallback per-
+      // facture si le client n'a pas de conditions complètes.
+      const custByName = supplierByNameIndex(rawCustomers);
       for (const ro of activeRaw) {
         const season = seasonById.get(ro.id) ?? "";
         const df = ro.docFlow;
         if (!df) continue;
+        const fiche = custByName.get((ro.fournisseur ?? "").trim().toLowerCase());
+        const sched = computeCustomerSchedule(ro, fiche);
+        if (sched.length) {
+          for (const it of sched) {
+            if (it.remaining <= 0.01 || !it.date) continue;
+            const k = keyFromIso(it.date);
+            if (!k) continue;
+            // Prévisionnel (estimé) : jamais « en retard ». Si sa date estimée est déjà
+            // passée (repli sur la date de commande faute de livraison / due date), on le
+            // roule sur le mois en cours — comme le prévisionnel fournisseur.
+            // Seule une vraie échéance (facture émise, due date réelle) déjà dépassée et
+            // non encaissée compte comme « En retard ».
+            if (it.estimated || k >= currentKey) {
+              const bk = k < currentKey ? currentKey : k;
+              bump(expected, season, bk, it.remaining);
+              pushCell(expectedDetails, season, bk, {
+                orderId: ro.id,
+                ref: ro.reference ?? ro.id,
+                party: ro.fournisseur ?? "",
+                amount: it.remaining,
+                kind: "attendu",
+                label: it.label,
+              });
+            } else {
+              overdueBySeason.set(season, (overdueBySeason.get(season) ?? 0) + it.remaining);
+              overdueItems.push({
+                season,
+                orderId: ro.id,
+                ref: ro.reference ?? ro.id,
+                client: ro.fournisseur ?? "",
+                amount: it.remaining,
+                dueDate: it.date,
+              });
+            }
+          }
+          continue;
+        }
         const slots = [
           ...(df.packingLists ?? []).map((pl) => ({
             paiements: pl.paiements ?? [],
@@ -332,7 +378,7 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
     ];
 
     return { months, seasons, cell, expectedAt, overdueOf, hasOverdue, overdueItems, cellItems };
-  }, [orders, rawOrders, rawSuppliers, currentKey, nextKey, isSupplier]);
+  }, [orders, rawOrders, rawSuppliers, rawCustomers, currentKey, nextKey, isSupplier]);
 
   const { months, seasons, cell, expectedAt, overdueOf, hasOverdue, overdueItems, cellItems } =
     model;

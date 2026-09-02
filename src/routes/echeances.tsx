@@ -21,6 +21,7 @@ import {
   rawOrdersQueryOptions,
   rawCustomerOrdersQueryOptions,
   rawSuppliersQueryOptions,
+  rawCustomersQueryOptions,
 } from "@/lib/data";
 import { seasonSortKey } from "@/lib/season";
 import {
@@ -63,6 +64,7 @@ function EcheancesPage() {
   const { data: rawSupplierOrders } = useSuspenseQuery(rawOrdersQueryOptions());
   const { data: rawCustomerOrders } = useSuspenseQuery(rawCustomerOrdersQueryOptions());
   const { data: rawSuppliers } = useSuspenseQuery(rawSuppliersQueryOptions());
+  const { data: rawCustomers } = useSuspenseQuery(rawCustomersQueryOptions());
 
   const allDue = useMemo(
     () =>
@@ -72,8 +74,16 @@ function EcheancesPage() {
         rawSupplierOrders,
         rawCustomerOrders,
         rawSuppliers,
+        rawCustomers,
       ),
-    [supplierOrders, customerOrders, rawSupplierOrders, rawCustomerOrders, rawSuppliers],
+    [
+      supplierOrders,
+      customerOrders,
+      rawSupplierOrders,
+      rawCustomerOrders,
+      rawSuppliers,
+      rawCustomers,
+    ],
   );
 
   const search = Route.useSearch();
