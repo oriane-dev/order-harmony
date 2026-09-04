@@ -51,13 +51,25 @@
   --radius: 0.75rem;
 
   /* Navy Trust palette */
-  --background: oklch(0.99 0.003 250);
+  /* Fond nettement plus profond que les cartes blanches → les cartes « ressortent ». */
+  --background: oklch(0.948 0.009 258);
   --foreground: oklch(0.22 0.04 265);
-  --surface: oklch(0.985 0.005 250);
-  --surface-2: oklch(0.965 0.008 250);
+  --surface: oklch(0.978 0.006 255);
+  --surface-2: oklch(0.935 0.013 258);
 
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.22 0.04 265);
+
+  /* Ombres portées — reliefs partagés (cartes, tableaux, popovers). */
+  --shadow-card:
+    0 1px 2px -1px oklch(0.25 0.05 265 / 0.14),
+    0 10px 24px -10px oklch(0.25 0.05 265 / 0.26);
+  --shadow-card-hover:
+    0 3px 8px -2px oklch(0.25 0.05 265 / 0.18),
+    0 18px 36px -12px oklch(0.25 0.05 265 / 0.32);
+  --shadow-pop:
+    0 6px 14px -4px oklch(0.25 0.05 265 / 0.2),
+    0 24px 48px -14px oklch(0.25 0.05 265 / 0.34);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.22 0.04 265);
 
@@ -85,23 +97,34 @@
   --info: oklch(0.62 0.11 240);
   --info-foreground: oklch(0.99 0 0);
 
-  --border: oklch(0.92 0.008 250);
-  --input: oklch(0.92 0.008 250);
+  --border: oklch(0.885 0.011 255);
+  --input: oklch(0.885 0.011 255);
   --ring: oklch(0.58 0.09 250);
 
-  --sidebar: oklch(0.975 0.005 250);
+  --sidebar: oklch(0.955 0.008 255);
   --sidebar-foreground: oklch(0.22 0.04 265);
-  --sidebar-border: oklch(0.92 0.008 250);
+  --sidebar-border: oklch(0.885 0.011 255);
 }
 
 .dark {
-  --background: oklch(0.16 0.02 265);
+  --background: oklch(0.145 0.018 265);
   --foreground: oklch(0.96 0.005 250);
   --surface: oklch(0.19 0.025 265);
-  --surface-2: oklch(0.22 0.03 265);
+  --surface-2: oklch(0.24 0.03 265);
 
-  --card: oklch(0.2 0.025 265);
+  --card: oklch(0.205 0.026 265);
   --card-foreground: oklch(0.96 0.005 250);
+
+  /* En sombre, l'ombre porte peu : on s'appuie sur des ombres franches + un liseré clair en tête. */
+  --shadow-card:
+    0 1px 2px -1px oklch(0 0 0 / 0.5),
+    0 8px 22px -10px oklch(0 0 0 / 0.6);
+  --shadow-card-hover:
+    0 2px 6px -2px oklch(0 0 0 / 0.55),
+    0 16px 34px -12px oklch(0 0 0 / 0.7);
+  --shadow-pop:
+    0 6px 16px -4px oklch(0 0 0 / 0.6),
+    0 22px 48px -14px oklch(0 0 0 / 0.75);
   --popover: oklch(0.2 0.025 265);
   --popover-foreground: oklch(0.96 0.005 250);
 
@@ -129,13 +152,13 @@
   --info: oklch(0.7 0.13 240);
   --info-foreground: oklch(0.15 0.02 240);
 
-  --border: oklch(0.3 0.02 265);
-  --input: oklch(0.3 0.02 265);
+  --border: oklch(0.33 0.022 265);
+  --input: oklch(0.33 0.022 265);
   --ring: oklch(0.68 0.12 250);
 
-  --sidebar: oklch(0.17 0.02 265);
+  --sidebar: oklch(0.165 0.02 265);
   --sidebar-foreground: oklch(0.96 0.005 250);
-  --sidebar-border: oklch(0.28 0.02 265);
+  --sidebar-border: oklch(0.3 0.022 265);
 }
 
 @layer base {
@@ -166,7 +189,21 @@
   background: var(--color-card);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-xl);
-  box-shadow: 0 1px 0 0 color-mix(in oklab, var(--color-foreground) 3%, transparent);
+  box-shadow: var(--shadow-card);
+}
+
+/* Une carte cliquable (Link) prend un léger « soulèvement » au survol. */
+a.card-elev,
+button.card-elev {
+  transition:
+    box-shadow 0.18s ease,
+    transform 0.18s ease,
+    background-color 0.18s ease;
+}
+a.card-elev:hover,
+button.card-elev:hover {
+  box-shadow: var(--shadow-card-hover);
+  transform: translateY(-2px);
 }
 
 @utility hairline {
