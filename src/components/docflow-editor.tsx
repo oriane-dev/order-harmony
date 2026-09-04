@@ -872,7 +872,14 @@ function ReturnCard({
         </div>
         <div className="space-y-1">
           <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
-            Avoir (CN) {ret.cnNo && <span className="num">· {ret.cnNo}</span>}
+            Avoir (CN){" "}
+            {ret.cnNo ? (
+              <span className="num">· {ret.cnNo}</span>
+            ) : (
+              <span className="text-warning-foreground normal-case tracking-normal">
+                · en attente
+              </span>
+            )}
           </div>
           <PdfSlot
             pdf={ret.cnPdf}

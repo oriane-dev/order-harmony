@@ -64,13 +64,8 @@ export async function runCustomerPdfImport(
       });
       continue;
     }
-    if (parsed.type === "CN" || parsed.type === "RA") {
-      rep.unmatched.push({
-        file: f.name,
-        reason: `${parsed.type} : à rattacher à la main sur la boîte « Retour » (ou l'avoir d'acompte) de la commande`,
-      });
-      continue;
-    }
+    // RA / CN inclus : ils sont rattachés automatiquement à la boîte « Retour »
+    // (ou à l'avoir d'acompte) créée par l'import CSV.
     const orderId = docOwner.get(parsed.docNo);
     if (!orderId) {
       rep.unmatched.push({

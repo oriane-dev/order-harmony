@@ -420,12 +420,15 @@ function fmtAmt(n: number): string {
   return n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-// Rapproche les Credit Notes (CN) et Return Authorisations (RA) d'un groupe de commande :
-//  1. CN d'acompte  : un CN dont le montant = une facture d'acompte → avoir sur cet acompte
-//                     (format « GIGI ROME » : la deposit invoice est annulée par son avoir).
-//  2. Retour        : un CN et un RA de MÊME ligne SO et MÊME montant → boîte « Retour »
-//                     (informative, sans effet sur les totaux ni la trésorerie).
-//  3. Non rapproché : tout CN/RA restant → ERREUR dans le rapport d'import.
+// Rapproche les Credit Notes (CN) et Return Authorisations (RA) d'un groupe de commande.
+// Un retour est TOUJOURS piloté par le RA (l'autorisation de retour vient en premier) :
+//  1. CN d'acompte  : un CN (qté 0) dont le montant = une facture d'acompte → avoir sur cet
+//                     acompte (format « GIGI ROME » : la deposit invoice est annulée).
+//  2. Retour        : un RA ouvre une boîte « Retour » (informative, sans effet trésorerie).
+//                     Son CN de même ligne SO + même montant vient la compléter — dans le même
+//                     import OU dans un import ultérieur (RA d'abord, CN ensuite).
+//  3. CN sans RA    : ERREUR (« je ne l'ai mis nulle part ») — un avoir sans retour n'est pas
+//                     autorisé. Un RA sans CN est en revanche normal (retour en attente d'avoir).
 function reconcileReturnsAndCredits(
   group: DocRow[],
   df: RawDocFlow,
@@ -433,19 +436,26 @@ function reconcileReturnsAndCredits(
   seen: Set<string>,
   rep: ImportReport,
 ): void {
-  const cnsLeft = group.filter((g) => g.type === "CN" && !seen.has(g.docNo));
-  const rasLeft = group.filter((g) => g.type === "RA" && !seen.has(g.docNo));
+  // `seen` (= existingDocNos) contient déjà les RA/CN/avoirs déjà importés → on ne traite
+  // que les nouvelles lignes, et les RA déjà ouverts en boîte « Retour » sont ignorés ici.
+  const cns = group.filter((g) => g.type === "CN" && !seen.has(g.docNo));
+  const ras = group.filter((g) => g.type === "RA" && !seen.has(g.docNo));
+  const returns: RawReturn[] = (df.returns ?? []).map((r) => ({ ...r }));
+  const raUsed = new Set<number>();
+  const cnErrors: DocRow[] = [];
 
-  // 1. Avoirs d'acompte — CN (quantité 0) dont le montant correspond à une facture
-  // d'acompte non encore créditée.
-  for (const cn of [...cnsLeft]) {
+  for (const cn of cns) {
+    // 1. Avoir d'acompte — CN (qté 0) au montant d'une facture d'acompte non créditée.
     const deposits = df.proforma?.depositInvoices ?? [];
-    const di = deposits.find(
-      (d) =>
-        Math.abs((d.montant ?? 0) - cn.total) < 0.02 &&
-        !(d.creditNotes ?? []).some((c) => c.docNo === cn.docNo),
-    );
-    if (cn.qty === 0 && di) {
+    const di =
+      cn.qty === 0
+        ? deposits.find(
+            (d) =>
+              Math.abs((d.montant ?? 0) - cn.total) < 0.02 &&
+              !(d.creditNotes ?? []).some((c) => c.docNo === cn.docNo),
+          )
+        : undefined;
+    if (di) {
       const note: RawCreditNote = {
         id: uid(salt),
         docNo: cn.docNo,
@@ -462,49 +472,71 @@ function reconcileReturnsAndCredits(
       };
       seen.add(cn.docNo);
       bump(rep, "Avoir (acompte)");
-      cnsLeft.splice(cnsLeft.indexOf(cn), 1);
+      continue;
     }
+
+    // 2a. Retour complet — un RA de la même ligne SO et du même montant est présent.
+    const rIdx = ras.findIndex(
+      (ra, i) => !raUsed.has(i) && ra.soRef === cn.soRef && Math.abs(ra.total - cn.total) < 0.02,
+    );
+    if (rIdx >= 0) {
+      const ra = ras[rIdx];
+      raUsed.add(rIdx);
+      seen.add(cn.docNo);
+      seen.add(ra.docNo);
+      returns.push({
+        id: uid(salt),
+        raNo: ra.docNo,
+        cnNo: cn.docNo,
+        soLine: cn.soRef,
+        montant: cn.total,
+        docDate: cn.date || ra.date,
+        qty: cn.qty,
+        raPdf: null,
+        cnPdf: null,
+      });
+      bump(rep, "Retour");
+      continue;
+    }
+
+    // 2b. Le CN complète un retour déjà ouvert (RA importé plus tôt, CN pas encore reçu).
+    const pIdx = returns.findIndex(
+      (r) => r.raNo && !r.cnNo && r.soLine === cn.soRef && Math.abs((r.montant ?? 0) - cn.total) < 0.02,
+    );
+    if (pIdx >= 0) {
+      returns[pIdx] = { ...returns[pIdx], cnNo: cn.docNo, docDate: returns[pIdx].docDate || cn.date };
+      seen.add(cn.docNo);
+      bump(rep, "Retour (complété)");
+      continue;
+    }
+
+    // 3. CN sans RA → erreur.
+    cnErrors.push(cn);
   }
 
-  // 2. Retours — un CN et un RA de même ligne SO et même montant.
-  const returns: RawReturn[] = df.returns ? [...df.returns] : [];
-  const already = new Set(returns.flatMap((r) => [r.raNo, r.cnNo].filter(Boolean) as string[]));
-  for (const cn of [...cnsLeft]) {
-    const idx = rasLeft.findIndex(
-      (ra) => ra.soRef === cn.soRef && Math.abs(ra.total - cn.total) < 0.02,
-    );
-    if (idx < 0) continue;
-    const ra = rasLeft[idx];
-    rasLeft.splice(idx, 1);
-    cnsLeft.splice(cnsLeft.indexOf(cn), 1);
-    seen.add(cn.docNo);
+  // Les RA restants (sans CN) ouvrent une boîte « Retour » en attente de leur avoir.
+  ras.forEach((ra, i) => {
+    if (raUsed.has(i)) return;
     seen.add(ra.docNo);
-    if (already.has(cn.docNo) || already.has(ra.docNo)) continue; // déjà importé
     returns.push({
       id: uid(salt),
       raNo: ra.docNo,
-      cnNo: cn.docNo,
-      soLine: cn.soRef,
-      montant: cn.total,
-      docDate: cn.date || ra.date,
-      qty: cn.qty,
+      soLine: ra.soRef,
+      montant: ra.total,
+      docDate: ra.date,
+      qty: ra.qty,
       raPdf: null,
       cnPdf: null,
     });
-    bump(rep, "Retour");
-  }
+    bump(rep, "Retour (RA en attente)");
+  });
+
   if (returns.length) df.returns = returns;
 
-  // 3. Non rapprochés → erreur (« je ne l'ai mis nulle part »).
-  for (const cn of cnsLeft)
+  for (const cn of cnErrors)
     rep.errors.push({
       ref: cn.docNo,
-      reason: `avoir (CN) non rapproché : ni RA de ${fmtAmt(cn.total)} sur ${cn.soRef}, ni facture d'acompte de ce montant`,
-    });
-  for (const ra of rasLeft)
-    rep.errors.push({
-      ref: ra.docNo,
-      reason: `retour (RA) non rapproché : aucun avoir (CN) de ${fmtAmt(ra.total)} sur ${ra.soRef}`,
+      reason: `avoir (CN) sans retour : aucun RA de ${fmtAmt(cn.total)} sur ${cn.soRef}, ni facture d'acompte de ce montant — un CN sans RA n'est pas autorisé`,
     });
 }
 
@@ -517,11 +549,20 @@ export function docPdfState(order: RawOrder, docNo: string): "filled" | "empty" 
   if (docNo === order.reference) return df?.poDocument ? "filled" : "empty";
   if (!df) return "absent";
   if (df.proforma?.docNo === docNo) return df.proforma.pdf ? "filled" : "empty";
-  for (const di of df.proforma?.depositInvoices ?? [])
+  for (const di of df.proforma?.depositInvoices ?? []) {
     if (di.docNo === docNo) return di.pdf ? "filled" : "empty";
+    for (const c of di.creditNotes ?? []) if (c.docNo === docNo) return c.pdf ? "filled" : "empty";
+  }
   for (const pl of df.packingLists ?? []) {
     if (pl.docNo === docNo) return pl.packingListPdf ? "filled" : "empty";
-    for (const f of pl.factures ?? []) if (f.docNo === docNo) return f.pdf ? "filled" : "empty";
+    for (const f of pl.factures ?? []) {
+      if (f.docNo === docNo) return f.pdf ? "filled" : "empty";
+      for (const c of f.creditNotes ?? []) if (c.docNo === docNo) return c.pdf ? "filled" : "empty";
+    }
+  }
+  for (const r of df.returns ?? []) {
+    if (r.raNo === docNo) return r.raPdf ? "filled" : "empty";
+    if (r.cnNo === docNo) return r.cnPdf ? "filled" : "empty";
   }
   return "absent";
 }
@@ -566,6 +607,49 @@ export function attachPdfToOrder(
       status: "attached",
     };
   }
+  // avoirs d'acompte (credit notes rattachés à une facture d'acompte)
+  if ((pf?.depositInvoices ?? []).some((di) => (di.creditNotes ?? []).some((c) => c.docNo === docNo))) {
+    let cnAlready = false;
+    const depositInvoices = (pf!.depositInvoices ?? []).map((di) => ({
+      ...di,
+      creditNotes: (di.creditNotes ?? []).map((c) => {
+        if (c.docNo !== docNo) return c;
+        if (c.pdf) {
+          cnAlready = true;
+          return c;
+        }
+        return { ...c, pdf };
+      }),
+    }));
+    if (cnAlready) return { order, status: "already" };
+    return {
+      order: { ...order, docFlow: { ...df, proforma: { ...pf!, depositInvoices } } },
+      status: "attached",
+    };
+  }
+  // retours : PDF de l'autorisation de retour (RA) ou de son avoir (CN)
+  if ((df.returns ?? []).some((r) => r.raNo === docNo || r.cnNo === docNo)) {
+    let retAlready = false;
+    const returns = (df.returns ?? []).map((r) => {
+      if (r.raNo === docNo) {
+        if (r.raPdf) {
+          retAlready = true;
+          return r;
+        }
+        return { ...r, raPdf: pdf };
+      }
+      if (r.cnNo === docNo) {
+        if (r.cnPdf) {
+          retAlready = true;
+          return r;
+        }
+        return { ...r, cnPdf: pdf };
+      }
+      return r;
+    });
+    if (retAlready) return { order, status: "already" };
+    return { order: { ...order, docFlow: { ...df, returns } }, status: "attached" };
+  }
   let found = false;
   let already = false;
   const packingLists = (df.packingLists ?? []).map((pl) => {
@@ -585,6 +669,21 @@ export function attachPdfToOrder(
           return f;
         }
         return { ...f, pdf };
+      }
+      // avoir (credit note) rattaché à une facture de livraison
+      if ((f.creditNotes ?? []).some((c) => c.docNo === docNo)) {
+        return {
+          ...f,
+          creditNotes: (f.creditNotes ?? []).map((c) => {
+            if (c.docNo !== docNo) return c;
+            found = true;
+            if (c.pdf) {
+              already = true;
+              return c;
+            }
+            return { ...c, pdf };
+          }),
+        };
       }
       return f;
     });
