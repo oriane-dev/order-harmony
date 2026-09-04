@@ -77,6 +77,7 @@ export interface Alert {
     | "invoice_without_po"
     | "payment_without_invoice"
     | "invoice_exceeds_po"
+    | "proforma_exceeds_po"
     | "overpayment"
     | "duplicate_payment"
     | "currency_mismatch"
@@ -86,6 +87,8 @@ export interface Alert {
   title: string;
   detail: string;
   orderId?: string;
+  // Marquée « ce n'est pas une erreur » par l'utilisateur → masquée des décomptes/vues actives.
+  acknowledged?: boolean;
 }
 
 export interface Order {
@@ -109,6 +112,7 @@ export interface Order {
   timeline: TimelineEvent[];
   alerts: Alert[];
   archived: boolean; // masquée de l'échéancier et du calendrier (non supprimée)
+  season: string; // saison déduite des notes (ex. "AW26"), "" si inconnue
   // Axe expédition (fournisseurs uniquement) — affiché À CÔTÉ de `status` (paiement).
   shipmentStatus?: ShipmentStatus;
 }
@@ -117,8 +121,9 @@ export function findOrder(orders: Order[], id: string): Order | undefined {
   return orders.find((o) => o.id === id);
 }
 
+// Alertes actives (hors celles marquées « ce n'est pas une erreur »).
 export function globalAlerts(orders: Order[]): Alert[] {
-  return orders.flatMap((o) => o.alerts);
+  return orders.flatMap((o) => o.alerts).filter((a) => !a.acknowledged);
 }
 
 export function summary(orders: Order[]) {

@@ -123,6 +123,11 @@ export function rawOrderToLedgerOrder(
   let delivered = 0;
   let paid = 0;
   let missingInvoiceCount = 0;
+  // Montant de la pro forma (doit = bon de commande) et somme des SEULES factures de
+  // livraison (factures d'acompte exclues) — pour l'alerte « supérieur au bon de commande »,
+  // chaque poste étant comparé indépendamment au BC (jamais additionnés).
+  let proformaMontant = 0;
+  let deliveryInvoiced = 0;
   // status-ladder signals
   let hasProforma = false; // une pro forma (devis/acompte) est renseignée
   let depositPaid = false; // l'acompte (pro forma ou facture d'acompte) a un paiement
@@ -144,6 +149,7 @@ export function rawOrderToLedgerOrder(
   ) {
     const pfId = `${row.id}:pf`;
     const pfMontant = num(df.proforma.montant);
+    proformaMontant = pfMontant;
     const pfPaid = (df.proforma.paiements ?? []).reduce((a, p) => a + num(p.montant), 0);
     // A pro forma is a quote, NOT an invoice — its amount is never counted as "facturé".
     // Only the factures added under a delivery (packing list) count toward invoiced.
@@ -269,6 +275,7 @@ export function rawOrderToLedgerOrder(
     const plPaid = (pl.paiements ?? []).reduce((a, p) => a + num(p.montant), 0);
     delivered += plInvoiced;
     invoiced += plInvoiced;
+    deliveryInvoiced += plInvoiced;
     paid += plPaid;
     deliveryInvoiceCount += invoices.length;
     const hasLivraisonProforma = (pl.livraisonProformas?.length ?? 0) > 0;
@@ -388,6 +395,7 @@ export function rawOrderToLedgerOrder(
     const fdMontant = num(df.factureDefinitive.montant);
     const fdPaid = (df.factureDefinitive.paiements ?? []).reduce((a, p) => a + num(p.montant), 0);
     invoiced += fdMontant;
+    deliveryInvoiced += fdMontant;
     paid += fdPaid;
     docs.push({
       id: fdId,
@@ -534,13 +542,28 @@ export function rawOrderToLedgerOrder(
       orderId: row.id,
     });
   }
-  if (invoiced > ordered * 1.01) {
+  // « Supérieur au bon de commande » — deux contrôles INDÉPENDANTS (jamais additionnés) :
+  // la pro forma doit valoir le BC, et la somme des factures de livraison (acomptes exclus)
+  // doit valoir le BC. Un poste inférieur au BC est normal → pas d'alerte.
+  const ref = row.reference ?? row.id;
+  const cur = currency;
+  if (ordered > 0 && proformaMontant > ordered * 1.01) {
+    alerts.push({
+      id: `a:${row.id}:proforma_exceeds_po`,
+      severity: "high",
+      kind: "proforma_exceeds_po",
+      title: "Pro forma supérieure au bon de commande",
+      detail: `Le montant de la pro forma (${proformaMontant.toFixed(2)} ${cur}) dépasse le bon de commande (${ordered.toFixed(2)} ${cur}) pour ${ref}.`,
+      orderId: row.id,
+    });
+  }
+  if (ordered > 0 && deliveryInvoiced > ordered * 1.01) {
     alerts.push({
       id: `a:${row.id}:invoice_exceeds_po`,
       severity: "high",
       kind: "invoice_exceeds_po",
-      title: "Facture supérieure au bon de commande",
-      detail: `Le total facturé dépasse le montant du bon de commande pour ${row.reference ?? row.id}.`,
+      title: "Factures de livraison supérieures au bon de commande",
+      detail: `La somme des factures de livraison (${deliveryInvoiced.toFixed(2)} ${cur}) dépasse le bon de commande (${ordered.toFixed(2)} ${cur}) pour ${ref}.`,
       orderId: row.id,
     });
   }
@@ -554,7 +577,9 @@ export function rawOrderToLedgerOrder(
       orderId: row.id,
     });
   }
-  if (missingInvoiceCount > 0) {
+  // « Facture manquante » : pertinent uniquement côté fournisseur (achats). Côté client,
+  // un bon de livraison sans facture rattachée est normal dans un flux de vente → pas d'alerte.
+  if (side === "payable" && missingInvoiceCount > 0) {
     alerts.push({
       id: `a:${row.id}:missing_invoice`,
       severity: "medium",
@@ -583,6 +608,11 @@ export function rawOrderToLedgerOrder(
     });
   }
 
+  // Alertes marquées « ce n'est pas une erreur » : conservées mais taguées `acknowledged`
+  // (masquées des décomptes/vues actives ; visibles à la demande sur la page Alertes).
+  const ackSet = new Set(row.acknowledgedAlerts ?? []);
+  const taggedAlerts = alerts.map((a) => (ackSet.has(a.id) ? { ...a, acknowledged: true } : a));
+
   return {
     id: row.id,
     side,
@@ -598,8 +628,9 @@ export function rawOrderToLedgerOrder(
     docs,
     timeline,
     // a manually-closed order is considered settled — hide its alerts everywhere
-    alerts: row.cloture ? [] : alerts,
+    alerts: row.cloture ? [] : taggedAlerts,
     archived: Boolean(row.archived),
+    season,
     shipmentStatus,
   };
 }

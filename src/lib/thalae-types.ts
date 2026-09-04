@@ -185,6 +185,9 @@ export interface RawOrder {
   // Archivée par l'utilisateur — la commande reste consultable mais disparaît de
   // l'échéancier et du calendrier (on ne la supprime pas). New field.
   archived?: boolean;
+  // Identifiants d'alertes marquées « ce n'est pas une erreur » par l'utilisateur
+  // (ex. "a:<id>:invoice_exceeds_po") — l'alerte reste calculée mais est masquée. New field.
+  acknowledgedAlerts?: string[];
 }
 
 export interface RawConditionPaiement {
