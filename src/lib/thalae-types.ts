@@ -34,6 +34,22 @@ export interface RawCreditNote {
   date?: string; // ISO
 }
 
+// Un retour marchandise : une Return Authorisation (RA) et son avoir (CN) de MÊME
+// montant, importés sur la même ligne de commande. Purement informatif — n'affecte NI
+// le montant facturé, NI la trésorerie (l'échéancier reste calé sur le total commandé).
+export interface RawReturn {
+  id: string;
+  raNo?: string; // ex. "RA-00022"
+  cnNo?: string; // ex. "CN-00526"
+  soLine?: string; // ex. "SO-00029/1" (référence SO de la ligne concernée)
+  montant?: number;
+  devise?: string;
+  docDate?: string; // ISO
+  qty?: number;
+  raPdf?: RawPdf | null;
+  cnPdf?: RawPdf | null;
+}
+
 export interface RawFacture {
   id: string;
   pdf?: RawPdf | null;
@@ -110,6 +126,8 @@ export interface RawDocFlow {
   packingLists?: RawPackingList[];
   // undocumented in the old app's code, present on every real docFlow row
   factureDefinitive?: RawDocFlowSlot;
+  // retours marchandise (paires RA + CN) — informatif, sans effet sur les totaux
+  returns?: RawReturn[];
 }
 
 export interface RawAttachment {

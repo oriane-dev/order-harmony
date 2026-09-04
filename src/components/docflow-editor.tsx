@@ -26,9 +26,10 @@ import type {
   RawPackingList,
   RawPayment,
   RawPdf,
+  RawReturn,
 } from "@/lib/thalae-types";
 import { ENTITIES, type Entity } from "@/lib/entities";
-import { Paperclip, Plus, Trash2, Upload, X, Pencil, Wallet } from "lucide-react";
+import { Paperclip, Plus, Trash2, Upload, X, Pencil, Wallet, Undo2 } from "lucide-react";
 
 const CURRENCIES = ["EUR", "USD", "GBP", "CNY"] as const;
 
@@ -820,6 +821,87 @@ function PackingListCard({
   );
 }
 
+/* ── Retour (RA + CN) ─────────────────────────────────────────────────── */
+
+// Boîte « Retour » — style rouge, comme un avoir. Purement informative : n'entre pas
+// dans le calcul du facturé ni de la trésorerie (l'échéancier reste calé sur le total
+// commandé ; si le client ne reprend pas la marchandise, on clôture la commande).
+function ReturnCard({
+  order,
+  ret,
+  currency,
+  mutation,
+}: {
+  order: RawOrder;
+  ret: RawReturn;
+  currency: string;
+  mutation: ReturnType<typeof useOrderMutation>;
+}) {
+  return (
+    <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-widest text-destructive">
+            <Undo2 className="size-3.5" /> Retour
+          </span>
+          {ret.soLine && <span className="text-xs num text-muted-foreground">{ret.soLine}</span>}
+          {ret.docDate && (
+            <span className="text-xs text-muted-foreground">· {fmtDate(ret.docDate)}</span>
+          )}
+        </div>
+        <button
+          onClick={() => mutation.mutate((o) => M.removeReturn(o, ret.id))}
+          className="text-xs text-muted-foreground hover:text-destructive inline-flex items-center gap-1"
+        >
+          <Trash2 className="size-3.5" /> Supprimer le retour
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="space-y-1">
+          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+            Autorisation de retour (RA) {ret.raNo && <span className="num">· {ret.raNo}</span>}
+          </div>
+          <PdfSlot
+            pdf={ret.raPdf}
+            label="RA"
+            busy={mutation.isPending}
+            onUpload={(f) => mutation.mutate((o) => M.setReturnPdf(o, ret.id, "ra", f))}
+            onDelete={() => mutation.mutate((o) => M.clearReturnPdf(o, ret.id, "ra"))}
+          />
+        </div>
+        <div className="space-y-1">
+          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+            Avoir (CN) {ret.cnNo && <span className="num">· {ret.cnNo}</span>}
+          </div>
+          <PdfSlot
+            pdf={ret.cnPdf}
+            label="CN"
+            busy={mutation.isPending}
+            onUpload={(f) => mutation.mutate((o) => M.setReturnPdf(o, ret.id, "cn", f))}
+            onDelete={() => mutation.mutate((o) => M.clearReturnPdf(o, ret.id, "cn"))}
+          />
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2 text-sm">
+        <span className="text-destructive font-medium num">
+          − {shortMoney(ret.montant ?? 0, ret.devise || currency)}
+        </span>
+        <AmountField
+          value={ret.montant}
+          currency={ret.devise || currency}
+          busy={mutation.isPending}
+          onSave={(v) => mutation.mutate((o) => M.setReturnAmount(o, ret.id, v))}
+        />
+        <span className="text-xs text-muted-foreground">
+          marchandise retournée — n'affecte pas la trésorerie
+        </span>
+      </div>
+    </div>
+  );
+}
+
 /* ── Main editor ───────────────────────────────────────────────────────── */
 
 /* ── Deposit invoice (facture d'acompte, under the pro forma) ──────────── */
@@ -1048,6 +1130,30 @@ export function DocflowEditor({
           </div>
         )}
       </div>
+
+      {/* Retours (RA + CN) — affichés seulement s'il y en a. Informatif, sans effet trésorerie. */}
+      {(df?.returns ?? []).length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="font-serif text-lg">Retours</h3>
+            <button
+              onClick={() => mutation.mutate((o) => M.addReturn(o))}
+              className="inline-flex items-center gap-1 text-xs text-accent hover:underline"
+            >
+              <Plus className="size-3" /> Ajouter un retour
+            </button>
+          </div>
+          {(df?.returns ?? []).map((ret) => (
+            <ReturnCard
+              key={ret.id}
+              order={order}
+              ret={ret}
+              currency={currency}
+              mutation={mutation}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

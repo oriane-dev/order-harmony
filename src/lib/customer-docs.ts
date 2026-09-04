@@ -19,6 +19,7 @@
 // can exceed the ordered total; that is surfaced by the existing over-invoice alert.
 
 import type {
+  RawCreditNote,
   RawDepositInvoice,
   RawDocFlow,
   RawFacture,
@@ -26,6 +27,7 @@ import type {
   RawPackingList,
   RawPayment,
   RawPdf,
+  RawReturn,
 } from "@/lib/thalae-types";
 
 export type DocType = "SO" | "PF" | "DN" | "IN" | "CN" | "RA";
@@ -162,10 +164,20 @@ export function existingDocNos(order: RawOrder): Set<string> {
   if (!df) return s;
   if (order.reference) s.add(order.reference); // SO / order-confirmation
   if (df.proforma?.docNo) s.add(df.proforma.docNo);
-  for (const di of df.proforma?.depositInvoices ?? []) if (di.docNo) s.add(di.docNo);
+  for (const di of df.proforma?.depositInvoices ?? []) {
+    if (di.docNo) s.add(di.docNo);
+    for (const cn of di.creditNotes ?? []) if (cn.docNo) s.add(cn.docNo);
+  }
   for (const pl of df.packingLists ?? []) {
     if (pl.docNo) s.add(pl.docNo);
-    for (const f of pl.factures ?? []) if (f.docNo) s.add(f.docNo);
+    for (const f of pl.factures ?? []) {
+      if (f.docNo) s.add(f.docNo);
+      for (const cn of f.creditNotes ?? []) if (cn.docNo) s.add(cn.docNo);
+    }
+  }
+  for (const r of df.returns ?? []) {
+    if (r.raNo) s.add(r.raNo);
+    if (r.cnNo) s.add(r.cnNo);
   }
   return s;
 }
@@ -393,16 +405,107 @@ export function buildCustomerImport(
       df.proforma = { ...pf, depositInvoices: [...(pf.depositInvoices ?? []), ...newDeposits] };
     }
 
-    // Not-yet-supported document types
-    for (const g of group)
-      if (g.type === "CN" || g.type === "RA")
-        rep.skipped.push({ docNo: g.docNo, reason: `${g.type} pas encore pris en charge` });
+    // Retours (RA + CN) et avoirs d'acompte (CN sur une facture d'acompte)
+    reconcileReturnsAndCredits(group, df, salt, seen, rep);
 
     order.docFlow = df;
     upserts.push(order);
   }
 
   return { upserts, report: rep };
+}
+
+// Montant lisible pour les messages d'erreur d'import.
+function fmtAmt(n: number): string {
+  return n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// Rapproche les Credit Notes (CN) et Return Authorisations (RA) d'un groupe de commande :
+//  1. CN d'acompte  : un CN dont le montant = une facture d'acompte → avoir sur cet acompte
+//                     (format « GIGI ROME » : la deposit invoice est annulée par son avoir).
+//  2. Retour        : un CN et un RA de MÊME ligne SO et MÊME montant → boîte « Retour »
+//                     (informative, sans effet sur les totaux ni la trésorerie).
+//  3. Non rapproché : tout CN/RA restant → ERREUR dans le rapport d'import.
+function reconcileReturnsAndCredits(
+  group: DocRow[],
+  df: RawDocFlow,
+  salt: string,
+  seen: Set<string>,
+  rep: ImportReport,
+): void {
+  const cnsLeft = group.filter((g) => g.type === "CN" && !seen.has(g.docNo));
+  const rasLeft = group.filter((g) => g.type === "RA" && !seen.has(g.docNo));
+
+  // 1. Avoirs d'acompte — CN (quantité 0) dont le montant correspond à une facture
+  // d'acompte non encore créditée.
+  for (const cn of [...cnsLeft]) {
+    const deposits = df.proforma?.depositInvoices ?? [];
+    const di = deposits.find(
+      (d) =>
+        Math.abs((d.montant ?? 0) - cn.total) < 0.02 &&
+        !(d.creditNotes ?? []).some((c) => c.docNo === cn.docNo),
+    );
+    if (cn.qty === 0 && di) {
+      const note: RawCreditNote = {
+        id: uid(salt),
+        docNo: cn.docNo,
+        montant: cn.total,
+        docDate: cn.date,
+        ...(cn.dueDate ? { date: cn.dueDate } : {}),
+        pdf: null,
+      };
+      df.proforma = {
+        ...df.proforma,
+        depositInvoices: deposits.map((d) =>
+          d.id === di.id ? { ...d, creditNotes: [...(d.creditNotes ?? []), note] } : d,
+        ),
+      };
+      seen.add(cn.docNo);
+      bump(rep, "Avoir (acompte)");
+      cnsLeft.splice(cnsLeft.indexOf(cn), 1);
+    }
+  }
+
+  // 2. Retours — un CN et un RA de même ligne SO et même montant.
+  const returns: RawReturn[] = df.returns ? [...df.returns] : [];
+  const already = new Set(returns.flatMap((r) => [r.raNo, r.cnNo].filter(Boolean) as string[]));
+  for (const cn of [...cnsLeft]) {
+    const idx = rasLeft.findIndex(
+      (ra) => ra.soRef === cn.soRef && Math.abs(ra.total - cn.total) < 0.02,
+    );
+    if (idx < 0) continue;
+    const ra = rasLeft[idx];
+    rasLeft.splice(idx, 1);
+    cnsLeft.splice(cnsLeft.indexOf(cn), 1);
+    seen.add(cn.docNo);
+    seen.add(ra.docNo);
+    if (already.has(cn.docNo) || already.has(ra.docNo)) continue; // déjà importé
+    returns.push({
+      id: uid(salt),
+      raNo: ra.docNo,
+      cnNo: cn.docNo,
+      soLine: cn.soRef,
+      montant: cn.total,
+      docDate: cn.date || ra.date,
+      qty: cn.qty,
+      raPdf: null,
+      cnPdf: null,
+    });
+    bump(rep, "Retour");
+  }
+  if (returns.length) df.returns = returns;
+
+  // 3. Non rapprochés → erreur (« je ne l'ai mis nulle part »).
+  for (const cn of cnsLeft)
+    rep.errors.push({
+      ref: cn.docNo,
+      reason: `avoir (CN) non rapproché : ni RA de ${fmtAmt(cn.total)} sur ${cn.soRef}, ni facture d'acompte de ce montant`,
+    });
+  for (const ra of rasLeft)
+    rep.errors.push({
+      ref: ra.docNo,
+      reason: `retour (RA) non rapproché : aucun avoir (CN) de ${fmtAmt(ra.total)} sur ${ra.soRef}`,
+    });
 }
 
 /* ── PDF attachment (phase 2) ─────────────────────────────────────────── */

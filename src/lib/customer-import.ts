@@ -65,7 +65,10 @@ export async function runCustomerPdfImport(
       continue;
     }
     if (parsed.type === "CN" || parsed.type === "RA") {
-      rep.unmatched.push({ file: f.name, reason: `${parsed.type} pas encore pris en charge` });
+      rep.unmatched.push({
+        file: f.name,
+        reason: `${parsed.type} : à rattacher à la main sur la boîte « Retour » (ou l'avoir d'acompte) de la commande`,
+      });
       continue;
     }
     const orderId = docOwner.get(parsed.docNo);

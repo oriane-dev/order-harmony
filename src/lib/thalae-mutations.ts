@@ -19,6 +19,7 @@ import type {
   RawPackingList,
   RawPayment,
   RawPdf,
+  RawReturn,
   RawSupplier,
 } from "@/lib/thalae-types";
 
@@ -254,6 +255,63 @@ export function clearPackingListPdf(order: RawOrder, plId: string): RawOrder {
     packingLists: (df.packingLists ?? []).map((p) =>
       p.id === plId ? { ...p, packingListPdf: null } : p,
     ),
+  });
+}
+
+/* ── RETOURS (paires RA + CN) ─────────────────────────────────────────── */
+
+export function addReturn(order: RawOrder): RawOrder {
+  const df = ensureDocFlow(order);
+  const r: RawReturn = { id: uid(), raPdf: null, cnPdf: null };
+  return withDocFlow(order, { ...df, returns: [...(df.returns ?? []), r] });
+}
+
+export function removeReturn(order: RawOrder, returnId: string): RawOrder {
+  const df = ensureDocFlow(order);
+  const r = (df.returns ?? []).find((x) => x.id === returnId);
+  if (r) {
+    removePdf(r.raPdf);
+    removePdf(r.cnPdf);
+  }
+  return withDocFlow(order, {
+    ...df,
+    returns: (df.returns ?? []).filter((x) => x.id !== returnId),
+  });
+}
+
+export function setReturnAmount(order: RawOrder, returnId: string, value: number): RawOrder {
+  const df = ensureDocFlow(order);
+  return withDocFlow(order, {
+    ...df,
+    returns: (df.returns ?? []).map((x) => (x.id === returnId ? { ...x, montant: value } : x)),
+  });
+}
+
+export async function setReturnPdf(
+  order: RawOrder,
+  returnId: string,
+  slot: "ra" | "cn",
+  file: File,
+): Promise<RawOrder> {
+  const df = ensureDocFlow(order);
+  const key = slot === "ra" ? "raPdf" : "cnPdf";
+  const r = (df.returns ?? []).find((x) => x.id === returnId);
+  removePdf(r?.[key]);
+  const pdf = await uploadPdf(file);
+  return withDocFlow(order, {
+    ...df,
+    returns: (df.returns ?? []).map((x) => (x.id === returnId ? { ...x, [key]: pdf } : x)),
+  });
+}
+
+export function clearReturnPdf(order: RawOrder, returnId: string, slot: "ra" | "cn"): RawOrder {
+  const df = ensureDocFlow(order);
+  const key = slot === "ra" ? "raPdf" : "cnPdf";
+  const r = (df.returns ?? []).find((x) => x.id === returnId);
+  removePdf(r?.[key]);
+  return withDocFlow(order, {
+    ...df,
+    returns: (df.returns ?? []).map((x) => (x.id === returnId ? { ...x, [key]: null } : x)),
   });
 }
 
