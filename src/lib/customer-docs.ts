@@ -381,10 +381,17 @@ export function buildCustomerImport(
     if (pf) {
       bump(rep, "PF");
       seen.add(pf.docNo);
+      // Certains exports sortent la pro forma avec un Total à 0 (bug de l'outil source)
+      // alors qu'elle couvre toute la commande. On retombe alors sur le montant du BC.
+      let pfMontant = pf.total;
+      if (!(pfMontant > 0) && (order.montant ?? 0) > 0) {
+        pfMontant = order.montant!;
+        rep.warnings.push(`${base} : pro forma ${pf.docNo} à 0 € dans le fichier → alignée sur le montant de commande`);
+      }
       df.proforma = {
         ...(df.proforma ?? {}),
         pdf: df.proforma?.pdf ?? null,
-        montant: pf.total,
+        montant: pfMontant,
         paiements: df.proforma?.paiements ?? [],
         docNo: pf.docNo,
         docDate: pf.date,
