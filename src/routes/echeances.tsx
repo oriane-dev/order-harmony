@@ -88,8 +88,9 @@ function EcheancesPage() {
 
   const search = Route.useSearch();
 
-  // Filtres multi-sélection : liste vide = « tout ».
-  const [sideFilter, setSideFilter] = useState<string[]>(search.cote ? [search.cote] : []);
+  // Côté : un seul à la fois (bascule Fournisseurs / Clients, comme le calendrier).
+  const [side, setSide] = useState<"payable" | "receivable">(search.cote ?? "payable");
+  // Autres filtres en multi-sélection : liste vide = « tout ».
   const [typeFilter, setTypeFilter] = useState<string[]>([]);
   const [seasonFilter, setSeasonFilter] = useState<string[]>([]);
   const [partyFilter, setPartyFilter] = useState<string[]>([]);
@@ -108,24 +109,24 @@ function EcheancesPage() {
     [allDue],
   );
 
-  // liste des contreparties présentes dans l'échéancier (respecte le filtre côté)
+  // liste des contreparties du côté courant
   const partyOptions = useMemo(
     () =>
       Array.from(
         new Set(
           allDue
-            .filter((d) => sideFilter.length === 0 || sideFilter.includes(d.side))
+            .filter((d) => d.side === side)
             .map((d) => d.order.party.name)
             .filter(Boolean),
         ),
       ).sort((a, b) => a.localeCompare(b)),
-    [allDue, sideFilter],
+    [allDue, side],
   );
 
   const rows = useMemo(() => {
     const filtered = allDue.filter(
       (d) =>
-        (sideFilter.length === 0 || sideFilter.includes(d.side)) &&
+        d.side === side &&
         (typeFilter.length === 0 || typeFilter.includes(d.category)) &&
         (seasonFilter.length === 0 || seasonFilter.includes(d.season)) &&
         (partyFilter.length === 0 || partyFilter.includes(d.order.party.name)) &&
@@ -165,13 +166,20 @@ function EcheancesPage() {
       return String(va).localeCompare(String(vb)) * dir;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allDue, sideFilter, typeFilter, seasonFilter, partyFilter, periodFilter, sortKey, sortDir]);
+  }, [allDue, side, typeFilter, seasonFilter, partyFilter, periodFilter, sortKey, sortDir]);
 
-  // Totaux alignés sur la vue filtrée (côté, type, saison, contrepartie, période).
-  const totalPayable = rows
+  // Totaux d'aperçu des DEUX côtés (indépendants de la bascule), alignés sur les filtres
+  // non liés au côté : type, saison, période.
+  const overview = allDue.filter(
+    (d) =>
+      (typeFilter.length === 0 || typeFilter.includes(d.category)) &&
+      (seasonFilter.length === 0 || seasonFilter.includes(d.season)) &&
+      (period === null || (isInPeriod(d, period) && (periodFilter !== "week" || !d.estimated))),
+  );
+  const totalPayable = overview
     .filter((d) => d.side === "payable")
     .reduce((a, d) => a + d.amount, 0);
-  const totalReceivable = rows
+  const totalReceivable = overview
     .filter((d) => d.side === "receivable")
     .reduce((a, d) => a + d.amount, 0);
 
@@ -352,22 +360,43 @@ function EcheancesPage() {
           </p>
         </div>
 
+        {/* Bascule de côté Fournisseurs / Clients — comme le calendrier */}
+        <div className="inline-flex rounded-lg border border-border overflow-hidden text-sm">
+          {(["payable", "receivable"] as const).map((s) => (
+            <button
+              key={s}
+              onClick={() => {
+                setSide(s);
+                setPartyFilter([]); // les contreparties dépendent du côté
+              }}
+              className={cn(
+                "px-5 py-2 transition-colors",
+                side === s
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:bg-surface-2",
+              )}
+            >
+              {s === "payable" ? "Fournisseurs" : "Clients"}
+            </button>
+          ))}
+        </div>
+
         <div className="grid grid-cols-2 gap-4">
-          <KpiCard label="À régler aux fournisseurs" value={totalPayable} tone="warning" />
-          <KpiCard label="À encaisser des clients" value={totalReceivable} tone="warning" />
+          <KpiCard
+            label="À régler aux fournisseurs"
+            value={totalPayable}
+            tone="warning"
+            className={side === "payable" ? "ring-2 ring-primary/60" : "opacity-70"}
+          />
+          <KpiCard
+            label="À encaisser des clients"
+            value={totalReceivable}
+            tone="warning"
+            className={side === "receivable" ? "ring-2 ring-primary/60" : "opacity-70"}
+          />
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <MultiSelect
-            label="Côté"
-            className="w-44"
-            selected={sideFilter}
-            onChange={setSideFilter}
-            options={[
-              { value: "payable", label: "Fournisseurs" },
-              { value: "receivable", label: "Clients" },
-            ]}
-          />
           <MultiSelect
             label="Type"
             className="w-44"
