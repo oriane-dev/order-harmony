@@ -252,9 +252,16 @@ function buildDeliveriesAndDeposits(
     bump(rep, "DN");
     seen.add(dn.docNo);
     // pair a delivery invoice by equal total (2-cent tolerance), preferring same qty
-    let idx = deliveryIns.findIndex(
-      (inv, k) => !used.has(k) && Math.abs(inv.total - dn.total) < 0.02 && inv.qty === dn.qty,
-    );
+    // Rapprochement BL ↔ facture : d'abord par référence de ligne SO (fiable même quand
+    // le total du BL ≠ celui de la facture — TVA / port), puis par montant (+ quantité).
+    let idx =
+      dn.soRef
+        ? deliveryIns.findIndex((inv, k) => !used.has(k) && inv.soRef === dn.soRef)
+        : -1;
+    if (idx < 0)
+      idx = deliveryIns.findIndex(
+        (inv, k) => !used.has(k) && Math.abs(inv.total - dn.total) < 0.02 && inv.qty === dn.qty,
+      );
     if (idx < 0)
       idx = deliveryIns.findIndex(
         (inv, k) => !used.has(k) && Math.abs(inv.total - dn.total) < 0.02,
