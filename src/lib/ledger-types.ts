@@ -103,8 +103,12 @@ export interface Order {
   totals: {
     ordered: number;
     delivered: number;
-    invoiced: number;
-    paid: number;
+    invoiced: number; // FACTURÉ BRUT (avant retours)
+    paid: number; // ENCAISSÉ BRUT (avant avoirs)
+    // Retours : la RA (autorisation de retour) diminue le facturé net, la CN (avoir)
+    // diminue l'encaissé net. Distincts car il peut y avoir un délai entre les deux.
+    returnedInvoiced?: number; // Σ des retours (RA) → à soustraire du facturé
+    returnedPaid?: number; // Σ des avoirs reçus (CN) → à soustraire de l'encaissé
   };
   progress: number; // 0..1
   owner: string;
@@ -119,6 +123,25 @@ export interface Order {
 
 export function findOrder(orders: Order[], id: string): Order | undefined {
   return orders.find((o) => o.id === id);
+}
+
+/* ── Facturé / encaissé net des retours ────────────────────────────────── */
+
+// La commande a-t-elle des retours qui impactent le facturé net ?
+export function hasReturns(o: Order): boolean {
+  return (o.totals.returnedInvoiced ?? 0) > 0.01;
+}
+// Facturé NET = facturé brut − Σ des retours (RA).
+export function invoicedNet(o: Order): number {
+  return o.totals.invoiced - (o.totals.returnedInvoiced ?? 0);
+}
+// Encaissé NET = encaissé brut − Σ des avoirs reçus (CN).
+export function paidNet(o: Order): number {
+  return o.totals.paid - (o.totals.returnedPaid ?? 0);
+}
+// Reste dû (net) = facturé net − encaissé net, plancher 0.
+export function remainingNet(o: Order): number {
+  return Math.max(0, invoicedNet(o) - paidNet(o));
 }
 
 // Alertes actives (hors celles marquées « ce n'est pas une erreur »).

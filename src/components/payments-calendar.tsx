@@ -26,6 +26,7 @@ import {
   supplierByNameIndex,
 } from "@/lib/payment-schedule";
 import { shortMoney, fmtDate } from "@/lib/format";
+import { remainingNet } from "@/lib/ledger-types";
 import { cn } from "@/lib/utils";
 import type { Entity } from "@/lib/entities";
 import type { RawFacture } from "@/lib/thalae-types";
@@ -198,7 +199,7 @@ export function PaymentsCalendar({ entity }: { entity: Entity }) {
           // generic fallback: whole-order outstanding (facturé − payé) at delivery month
           const o = adaptedById.get(ro.id);
           if (!o) continue;
-          const outstanding = Math.max(0, o.totals.invoiced - o.totals.paid);
+          const outstanding = remainingNet(o); // net des retours (RA) / avoirs (CN)
           if (outstanding <= 0.01) continue;
           const delivKey = keyFromIso(ro.dateLivraison);
           const key = delivKey && delivKey > currentKey ? delivKey : nextKey;

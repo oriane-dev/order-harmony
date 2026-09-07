@@ -17,7 +17,7 @@ import {
   rawOrdersQueryOptions,
   rawCustomerOrdersQueryOptions,
 } from "@/lib/data";
-import { severityLabel } from "@/lib/ledger-types";
+import { severityLabel, hasReturns, invoicedNet, paidNet, remainingNet } from "@/lib/ledger-types";
 import { deleteOrder, saveOrder, setDeliveryDate, setArchived } from "@/lib/thalae-mutations";
 import { shortMoney, fmtDate } from "@/lib/format";
 import { ENTITIES, type Entity } from "@/lib/entities";
@@ -90,9 +90,13 @@ export function OrderDetailContent({ order: initialOrder, entity }: { order: Ord
     onError: onSaveError,
   });
 
+  const withReturns = hasReturns(order);
+  const factureNet = invoicedNet(order);
+  const encaisseNet = paidNet(order);
   const remainingToDeliver = Math.max(0, order.totals.ordered - order.totals.delivered);
   const remainingToInvoice = Math.max(0, order.totals.ordered - order.totals.invoiced);
-  const remainingToPay = Math.max(0, order.totals.invoiced - order.totals.paid);
+  // Reste dû sur le facturé/encaissé NET (les retours réduisent les deux côtés).
+  const remainingToPay = remainingNet(order);
 
   const paidLabel = isSupplier ? "Payé" : "Encaissé";
   const remainingPayLabel = isSupplier ? "à payer" : "à encaisser";
@@ -267,16 +271,24 @@ export function OrderDetailContent({ order: initialOrder, entity }: { order: Ord
             tone={remainingToDeliver > 0 ? "warning" : "positive"}
           />
           <KpiCard
-            label="Facturé"
-            value={order.totals.invoiced}
+            label={withReturns ? "Facturé net" : "Facturé"}
+            value={withReturns ? factureNet : order.totals.invoiced}
             currency={order.currency}
-            hint={`${shortMoney(remainingToInvoice, order.currency)} à facturer`}
+            hint={
+              withReturns
+                ? `brut ${shortMoney(order.totals.invoiced, order.currency)} · −${shortMoney(order.totals.returnedInvoiced ?? 0, order.currency)} retours`
+                : `${shortMoney(remainingToInvoice, order.currency)} à facturer`
+            }
           />
           <KpiCard
-            label={paidLabel}
-            value={order.totals.paid}
+            label={withReturns ? `${paidLabel} net` : paidLabel}
+            value={withReturns ? encaisseNet : order.totals.paid}
             currency={order.currency}
-            hint={`${shortMoney(remainingToPay, order.currency)} ${remainingPayLabel}`}
+            hint={
+              withReturns
+                ? `brut ${shortMoney(order.totals.paid, order.currency)} · −${shortMoney(order.totals.returnedPaid ?? 0, order.currency)} avoirs`
+                : `${shortMoney(remainingToPay, order.currency)} ${remainingPayLabel}`
+            }
             tone={remainingToPay > 0 ? "warning" : "positive"}
           />
         </div>
@@ -306,19 +318,59 @@ export function OrderDetailContent({ order: initialOrder, entity }: { order: Ord
               {isSupplier ? "Analyse des paiements" : "Analyse des encaissements"}
             </h3>
             <ul className="space-y-3 text-sm">
-              <PayRow label="Total facturé" v={order.totals.invoiced} c={order.currency} />
-              <PayRow
-                label={isSupplier ? "Déjà payé" : "Déjà encaissé"}
-                v={order.totals.paid}
-                c={order.currency}
-                tone="positive"
-              />
-              <PayRow
-                label="Solde restant"
-                v={remainingToPay}
-                c={order.currency}
-                tone={remainingToPay > 0 ? "warning" : "default"}
-              />
+              {withReturns ? (
+                <>
+                  <PayRow label="Facturé brut" v={order.totals.invoiced} c={order.currency} />
+                  <PayRow
+                    label="Retours (RA)"
+                    v={order.totals.returnedInvoiced ?? 0}
+                    c={order.currency}
+                    variant="deduction"
+                  />
+                  <PayRow label="Facturé net" v={factureNet} c={order.currency} variant="total" />
+                  <PayRow
+                    label={isSupplier ? "Payé brut" : "Encaissé brut"}
+                    v={order.totals.paid}
+                    c={order.currency}
+                    tone="positive"
+                  />
+                  <PayRow
+                    label="Avoirs reçus (CN)"
+                    v={order.totals.returnedPaid ?? 0}
+                    c={order.currency}
+                    variant="deduction"
+                  />
+                  <PayRow
+                    label={isSupplier ? "Payé net" : "Encaissé net"}
+                    v={encaisseNet}
+                    c={order.currency}
+                    variant="total"
+                    tone="positive"
+                  />
+                  <PayRow
+                    label="Solde restant"
+                    v={remainingToPay}
+                    c={order.currency}
+                    tone={remainingToPay > 0 ? "warning" : "default"}
+                  />
+                </>
+              ) : (
+                <>
+                  <PayRow label="Total facturé" v={order.totals.invoiced} c={order.currency} />
+                  <PayRow
+                    label={isSupplier ? "Déjà payé" : "Déjà encaissé"}
+                    v={order.totals.paid}
+                    c={order.currency}
+                    tone="positive"
+                  />
+                  <PayRow
+                    label="Solde restant"
+                    v={remainingToPay}
+                    c={order.currency}
+                    tone={remainingToPay > 0 ? "warning" : "default"}
+                  />
+                </>
+              )}
             </ul>
           </div>
           <div className="card-elev p-6">
@@ -358,11 +410,15 @@ function PayRow({
   v,
   c,
   tone,
+  variant = "row",
 }: {
   label: string;
   v: number;
   c: string;
   tone?: "positive" | "warning" | "default";
+  // "row" = ligne normale ; "deduction" = petite ligne rouge en retrait (montant soustrait) ;
+  // "total" = sous-total mis en avant (net).
+  variant?: "row" | "deduction" | "total";
 }) {
   const cls =
     tone === "positive"
@@ -370,10 +426,25 @@ function PayRow({
       : tone === "warning"
         ? "text-warning-foreground"
         : "text-foreground";
+  if (variant === "deduction") {
+    return (
+      <li className="flex items-center justify-between pl-3 -mt-1">
+        <span className="text-xs text-destructive">{label}</span>
+        <span className="num text-sm text-destructive">−{shortMoney(v, c)}</span>
+      </li>
+    );
+  }
+  const emphasize = variant === "total";
   return (
-    <li className="flex items-center justify-between border-b border-border last:border-0 pb-2 last:pb-0">
-      <span className="text-muted-foreground">{label}</span>
-      <span className={`font-serif text-xl num ${cls}`}>{shortMoney(v, c)}</span>
+    <li
+      className={`flex items-center justify-between ${emphasize ? "border-t border-border pt-2.5 mt-0.5" : "border-b border-border last:border-0 pb-2 last:pb-0"}`}
+    >
+      <span className={emphasize ? "font-medium text-foreground" : "text-muted-foreground"}>
+        {label}
+      </span>
+      <span className={`font-serif ${emphasize ? "text-2xl" : "text-xl"} num ${cls}`}>
+        {shortMoney(v, c)}
+      </span>
     </li>
   );
 }

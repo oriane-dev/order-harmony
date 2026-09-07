@@ -608,6 +608,13 @@ export function rawOrderToLedgerOrder(
     });
   }
 
+  // Retours : la RA (autorisation de retour) diminue le facturé net ; la CN (avoir),
+  // dès qu'elle est reçue, diminue l'encaissé net. Le montant commandé et le livré ne
+  // bougent pas. Distincts car un retour peut être ouvert (RA) avant d'être crédité (CN).
+  const returns = df?.returns ?? [];
+  const returnedInvoiced = returns.reduce((a, r) => a + (r.raNo ? num(r.montant) : 0), 0);
+  const returnedPaid = returns.reduce((a, r) => a + (r.cnNo ? num(r.montant) : 0), 0);
+
   // Alertes marquées « ce n'est pas une erreur » : conservées mais taguées `acknowledged`
   // (masquées des décomptes/vues actives ; visibles à la demande sur la page Alertes).
   const ackSet = new Set(row.acknowledgedAlerts ?? []);
@@ -622,7 +629,14 @@ export function rawOrderToLedgerOrder(
     expectedAt: row.dateLivraison ?? "",
     currency,
     status,
-    totals: { ordered, delivered, invoiced, paid },
+    totals: {
+      ordered,
+      delivered,
+      invoiced,
+      paid,
+      ...(returnedInvoiced > 0.01 ? { returnedInvoiced } : {}),
+      ...(returnedPaid > 0.01 ? { returnedPaid } : {}),
+    },
     progress,
     owner: "",
     docs,

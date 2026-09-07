@@ -4,6 +4,7 @@
 
 import * as XLSX from "xlsx";
 import type { Order } from "@/lib/ledger-types";
+import { remainingNet } from "@/lib/ledger-types";
 import type { RawOrder, RawSupplier } from "@/lib/thalae-types";
 import {
   computeSupplierSchedule,
@@ -99,7 +100,7 @@ export function buildDueItems(
           estimated: false,
         });
     } else {
-      const gap = o.totals.invoiced - o.totals.paid;
+      const gap = remainingNet(o); // net des retours/avoirs
       if (gap > 0.01)
         out.push({
           key: `${o.id}:fac`,
@@ -146,7 +147,7 @@ export function buildDueItems(
       }
     } else {
       // client sans conditions complètes → affichage simple (gap à la due date)
-      const gap = o.totals.invoiced - o.totals.paid;
+      const gap = remainingNet(o); // net des retours/avoirs
       if (gap > 0.01)
         out.push({
           key: `${o.id}:fac`,

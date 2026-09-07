@@ -44,6 +44,7 @@ import {
   ChevronsUpDown,
 } from "lucide-react";
 import type { OrderStatus } from "@/lib/ledger-types";
+import { hasReturns, invoicedNet, paidNet, remainingNet } from "@/lib/ledger-types";
 import { seasonOf, seasonSortKey } from "@/lib/season";
 import { ENTITIES, type Entity } from "@/lib/entities";
 
@@ -158,11 +159,11 @@ export function OrdersListPage({ entity }: { entity: Entity }) {
       case "ordered":
         return o.totals.ordered;
       case "invoiced":
-        return o.totals.invoiced;
+        return invoicedNet(o);
       case "paid":
-        return o.totals.paid;
+        return paidNet(o);
       case "remaining":
-        return Math.max(0, o.totals.invoiced - o.totals.paid);
+        return remainingNet(o);
       case "livraison":
         return o.expectedAt ? new Date(o.expectedAt).getTime() : null;
     }
@@ -396,7 +397,8 @@ export function OrdersListPage({ entity }: { entity: Entity }) {
             </thead>
             <tbody className="divide-y divide-border">
               {sorted.map((o) => {
-                const remaining = Math.max(0, o.totals.invoiced - o.totals.paid);
+                const remaining = remainingNet(o);
+                const withReturns = hasReturns(o);
                 return (
                   <tr
                     key={o.id}
@@ -432,10 +434,20 @@ export function OrdersListPage({ entity }: { entity: Entity }) {
                       {shortMoney(o.totals.ordered, o.currency)}
                     </td>
                     <td className="px-3 py-3.5 text-right font-serif text-base num">
-                      {shortMoney(o.totals.invoiced, o.currency)}
+                      {shortMoney(invoicedNet(o), o.currency)}
+                      {withReturns && (
+                        <div className="font-sans text-[10px] text-muted-foreground">
+                          brut {shortMoney(o.totals.invoiced, o.currency)}
+                        </div>
+                      )}
                     </td>
                     <td className="px-3 py-3.5 text-right font-serif text-base num text-success">
-                      {shortMoney(o.totals.paid, o.currency)}
+                      {shortMoney(paidNet(o), o.currency)}
+                      {withReturns && (o.totals.returnedPaid ?? 0) > 0.01 && (
+                        <div className="font-sans text-[10px] text-muted-foreground">
+                          brut {shortMoney(o.totals.paid, o.currency)}
+                        </div>
+                      )}
                     </td>
                     <td
                       className={cn(

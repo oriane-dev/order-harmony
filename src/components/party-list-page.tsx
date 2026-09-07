@@ -13,6 +13,7 @@ import {
   rawCustomersQueryOptions,
 } from "@/lib/data";
 import { deleteSupplier } from "@/lib/thalae-mutations";
+import { remainingNet } from "@/lib/ledger-types";
 import { importSupplierFile } from "@/lib/thalae-import";
 import { shortMoney } from "@/lib/format";
 import { Plus, Upload, Pencil, Trash2 } from "lucide-react";
@@ -110,10 +111,7 @@ export function PartyListPage({ entity }: { entity: Entity }) {
             );
             // floored per order at 0 — see summary() in ledger-types: a prepaid
             // deposit must not net into a negative "restant dû"
-            const outstanding = partyOrders.reduce(
-              (a, o) => a + Math.max(0, o.totals.invoiced - o.totals.paid),
-              0,
-            );
+            const outstanding = partyOrders.reduce((a, o) => a + remainingNet(o), 0);
             return (
               <div
                 key={party?.id ?? name}
