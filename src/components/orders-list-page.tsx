@@ -1,6 +1,6 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AppShell } from "@/components/app-shell";
 import { StatusChip } from "@/components/status-chip";
 import { OrderForm } from "@/components/order-form";
@@ -72,6 +72,27 @@ type SortKey =
   | "remaining"
   | "livraison";
 
+// Filtres/tri mémorisés PAR CÔTÉ (fournisseur / client), au niveau module, pour qu'ils
+// survivent quand on entre dans une commande puis qu'on revient (navigation SPA).
+// Réinitialisés seulement au rechargement complet de la page.
+interface ListState {
+  statusFilter: OrderStatus | "all";
+  partyFilter: string;
+  seasonFilter: string;
+  search: string;
+  sortKey: SortKey | null;
+  sortDir: "asc" | "desc";
+}
+const DEFAULT_LIST_STATE: ListState = {
+  statusFilter: "all",
+  partyFilter: "all",
+  seasonFilter: "all",
+  search: "",
+  sortKey: null,
+  sortDir: "asc",
+};
+const listStateByEntity: Record<string, ListState> = {};
+
 // order used when sorting by the "Statut" column
 const STATUS_RANK: Record<OrderStatus, number> = {
   confirmed: 0,
@@ -102,12 +123,26 @@ export function OrdersListPage({ entity }: { entity: Entity }) {
 
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const [statusFilter, setStatusFilter] = useState<OrderStatus | "all">("all");
-  const [partyFilter, setPartyFilter] = useState<string>("all");
-  const [seasonFilter, setSeasonFilter] = useState<string>("all");
-  const [search, setSearch] = useState("");
-  const [sortKey, setSortKey] = useState<SortKey | null>(null);
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  // Reprend les filtres mémorisés pour ce côté (sinon valeurs par défaut).
+  const saved = listStateByEntity[entity] ?? DEFAULT_LIST_STATE;
+  const [statusFilter, setStatusFilter] = useState<OrderStatus | "all">(saved.statusFilter);
+  const [partyFilter, setPartyFilter] = useState<string>(saved.partyFilter);
+  const [seasonFilter, setSeasonFilter] = useState<string>(saved.seasonFilter);
+  const [search, setSearch] = useState(saved.search);
+  const [sortKey, setSortKey] = useState<SortKey | null>(saved.sortKey);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">(saved.sortDir);
+
+  // Persiste les filtres/tri à chaque changement → restaurés au retour sur la liste.
+  useEffect(() => {
+    listStateByEntity[entity] = {
+      statusFilter,
+      partyFilter,
+      seasonFilter,
+      search,
+      sortKey,
+      sortDir,
+    };
+  }, [entity, statusFilter, partyFilter, seasonFilter, search, sortKey, sortDir]);
   const produitById = useMemo(() => new Map(rawOrders.map((o) => [o.id, o.produit])), [rawOrders]);
   const seasonById = useMemo(
     () => new Map(rawOrders.map((o) => [o.id, seasonOf(o.notes)])),
