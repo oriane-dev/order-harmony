@@ -15,7 +15,9 @@ import {
   Sun,
   Command,
   Settings,
+  LogOut,
 } from "lucide-react";
+import { useSession, signOut } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { globalAlerts as computeGlobalAlerts } from "@/lib/ledger-types";
 import { ordersQueryOptions, customerOrdersQueryOptions } from "@/lib/data";
@@ -44,6 +46,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [q, setQ] = useState("");
+  const { session } = useSession(); // pour le bouton de déconnexion (si connecté)
 
   useEffect(() => {
     const stored = typeof window !== "undefined" ? localStorage.getItem("theme") : null;
@@ -174,6 +177,16 @@ export function AppShell({ children }: { children: ReactNode }) {
             >
               <Settings className="size-4" />
             </button>
+            {session && (
+              <button
+                onClick={() => signOut()}
+                className="size-9 grid place-items-center rounded-lg border border-border hover:bg-surface-2 hover:text-destructive transition-colors"
+                aria-label="Se déconnecter"
+                title={session.user.email ? `Se déconnecter (${session.user.email})` : "Se déconnecter"}
+              >
+                <LogOut className="size-4" />
+              </button>
+            )}
           </div>
         </header>
         <main className="flex-1 px-8 py-8">{children}</main>

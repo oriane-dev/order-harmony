@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SuppliersRouteImport } from './routes/suppliers'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as EcheancesRouteImport } from './routes/echeances'
 import { Route as CustomersRouteImport } from './routes/customers'
 import { Route as CalendrierRouteImport } from './routes/calendrier'
@@ -23,6 +24,11 @@ import { Route as CustomerOrdersIdRouteImport } from './routes/customer-orders.$
 const SuppliersRoute = SuppliersRouteImport.update({
   id: '/suppliers',
   path: '/suppliers',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
 const EcheancesRoute = EcheancesRouteImport.update({
@@ -77,6 +83,7 @@ export interface FileRoutesByFullPath {
   '/calendrier': typeof CalendrierRoute
   '/customers': typeof CustomersRoute
   '/echeances': typeof EcheancesRoute
+  '/login': typeof LoginRoute
   '/suppliers': typeof SuppliersRoute
   '/customer-orders/$id': typeof CustomerOrdersIdRoute
   '/orders/$id': typeof OrdersIdRoute
@@ -89,6 +96,7 @@ export interface FileRoutesByTo {
   '/calendrier': typeof CalendrierRoute
   '/customers': typeof CustomersRoute
   '/echeances': typeof EcheancesRoute
+  '/login': typeof LoginRoute
   '/suppliers': typeof SuppliersRoute
   '/customer-orders/$id': typeof CustomerOrdersIdRoute
   '/orders/$id': typeof OrdersIdRoute
@@ -102,6 +110,7 @@ export interface FileRoutesById {
   '/calendrier': typeof CalendrierRoute
   '/customers': typeof CustomersRoute
   '/echeances': typeof EcheancesRoute
+  '/login': typeof LoginRoute
   '/suppliers': typeof SuppliersRoute
   '/customer-orders/$id': typeof CustomerOrdersIdRoute
   '/orders/$id': typeof OrdersIdRoute
@@ -116,6 +125,7 @@ export interface FileRouteTypes {
     | '/calendrier'
     | '/customers'
     | '/echeances'
+    | '/login'
     | '/suppliers'
     | '/customer-orders/$id'
     | '/orders/$id'
@@ -128,6 +138,7 @@ export interface FileRouteTypes {
     | '/calendrier'
     | '/customers'
     | '/echeances'
+    | '/login'
     | '/suppliers'
     | '/customer-orders/$id'
     | '/orders/$id'
@@ -140,6 +151,7 @@ export interface FileRouteTypes {
     | '/calendrier'
     | '/customers'
     | '/echeances'
+    | '/login'
     | '/suppliers'
     | '/customer-orders/$id'
     | '/orders/$id'
@@ -153,6 +165,7 @@ export interface RootRouteChildren {
   CalendrierRoute: typeof CalendrierRoute
   CustomersRoute: typeof CustomersRoute
   EcheancesRoute: typeof EcheancesRoute
+  LoginRoute: typeof LoginRoute
   SuppliersRoute: typeof SuppliersRoute
   CustomerOrdersIdRoute: typeof CustomerOrdersIdRoute
   OrdersIdRoute: typeof OrdersIdRoute
@@ -167,6 +180,13 @@ declare module '@tanstack/react-router' {
       path: '/suppliers'
       fullPath: '/suppliers'
       preLoaderRoute: typeof SuppliersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/echeances': {
@@ -241,6 +261,7 @@ const rootRouteChildren: RootRouteChildren = {
   CalendrierRoute: CalendrierRoute,
   CustomersRoute: CustomersRoute,
   EcheancesRoute: EcheancesRoute,
+  LoginRoute: LoginRoute,
   SuppliersRoute: SuppliersRoute,
   CustomerOrdersIdRoute: CustomerOrdersIdRoute,
   OrdersIdRoute: OrdersIdRoute,
