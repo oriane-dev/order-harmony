@@ -589,25 +589,6 @@ export function rawOrderToLedgerOrder(
       orderId: row.id,
     });
   }
-  // Only flag orders with some real docFlow engagement (a proforma, at least) — bare
-  // stub rows with no docFlow at all give no reliable signal either way, and flagging
-  // all of them floods the alerts page with noise on old/since-completed orders.
-  if (
-    df &&
-    row.dateLivraison &&
-    new Date(row.dateLivraison) < new Date() &&
-    !df.packingLists?.length
-  ) {
-    alerts.push({
-      id: `a:${row.id}:late_delivery`,
-      severity: "medium",
-      kind: "late_delivery",
-      title: "Risque de retard de livraison",
-      detail: `La livraison prévue le ${row.dateLivraison} est dépassée sans bordereau de livraison enregistré.`,
-      orderId: row.id,
-    });
-  }
-
   // Retours : la RA (autorisation de retour) diminue le facturé net ; la CN (avoir),
   // dès qu'elle est reçue, diminue l'encaissé net. Le montant commandé et le livré ne
   // bougent pas. Distincts car un retour peut être ouvert (RA) avant d'être crédité (CN).
