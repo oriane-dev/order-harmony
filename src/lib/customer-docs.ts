@@ -377,8 +377,11 @@ export function buildCustomerImport(
     const seen = existingDocNos(order);
     const df: RawDocFlow = order.docFlow ? { ...order.docFlow } : {};
 
-    // Pro forma
-    const pf = group.find((g) => g.type === "PF" && !seen.has(g.docNo));
+    // Pro forma principale : si la commande en a déjà une (ré-import), on la GARDE et on
+    // n'y touche pas ; sinon on prend la première PF encore non vue.
+    const pf = df.proforma?.docNo
+      ? undefined
+      : group.find((g) => g.type === "PF" && !seen.has(g.docNo));
     if (pf) {
       bump(rep, "PF");
       seen.add(pf.docNo);
@@ -401,8 +404,9 @@ export function buildCustomerImport(
     }
     // Pro formas supplémentaires (Husbands : une par ligne SO) → conservées dans
     // extraProformas au lieu d'être écartées. Informatives, rattachées à la commande.
+    const primaryPfNo = df.proforma?.docNo;
     const extraPf = group.filter(
-      (g) => g.type === "PF" && g.docNo !== pf?.docNo && !seen.has(g.docNo),
+      (g) => g.type === "PF" && g.docNo !== primaryPfNo && !seen.has(g.docNo),
     );
     if (extraPf.length) {
       const extras = extraPf.map((x) => {
