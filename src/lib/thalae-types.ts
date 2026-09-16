@@ -128,6 +128,9 @@ export interface RawDocFlow {
   factureDefinitive?: RawDocFlowSlot;
   // retours marchandise (paires RA + CN) — informatif, sans effet sur les totaux
   returns?: RawReturn[];
+  // Husbands : plusieurs pro formas par commande (une par ligne SO). La 1re va dans
+  // `proforma` (acompte/BC), les suivantes ici — informatives, rattachées à la commande.
+  extraProformas?: RawDocFlowSlot[];
 }
 
 export interface RawAttachment {

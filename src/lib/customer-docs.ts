@@ -179,6 +179,7 @@ export function existingDocNos(order: RawOrder): Set<string> {
     if (r.raNo) s.add(r.raNo);
     if (r.cnNo) s.add(r.cnNo);
   }
+  for (const p of df.extraProformas ?? []) if (p.docNo) s.add(p.docNo);
   return s;
 }
 
@@ -398,10 +399,19 @@ export function buildCustomerImport(
         dueDate: pf.dueDate,
       };
     }
+    // Pro formas supplémentaires (Husbands : une par ligne SO) → conservées dans
+    // extraProformas au lieu d'être écartées. Informatives, rattachées à la commande.
     const extraPf = group.filter(
       (g) => g.type === "PF" && g.docNo !== pf?.docNo && !seen.has(g.docNo),
     );
-    for (const x of extraPf) rep.warnings.push(`${base} : proforma multiple ${x.docNo} ignorée`);
+    if (extraPf.length) {
+      const extras = extraPf.map((x) => {
+        seen.add(x.docNo);
+        bump(rep, "PF");
+        return { pdf: null, montant: x.total, docNo: x.docNo, docDate: x.date, dueDate: x.dueDate };
+      });
+      df.extraProformas = [...(df.extraProformas ?? []), ...extras];
+    }
 
     // Deliveries (with their delivery invoices) + deposit invoices (under pro forma)
     const dns = group.filter((g) => g.type === "DN");
@@ -563,6 +573,8 @@ export function docPdfState(order: RawOrder, docNo: string): "filled" | "empty" 
   if (docNo === order.reference) return df?.poDocument ? "filled" : "empty";
   if (!df) return "absent";
   if (df.proforma?.docNo === docNo) return df.proforma.pdf ? "filled" : "empty";
+  for (const p of df.extraProformas ?? [])
+    if (p.docNo === docNo) return p.pdf ? "filled" : "empty";
   for (const di of df.proforma?.depositInvoices ?? []) {
     if (di.docNo === docNo) return di.pdf ? "filled" : "empty";
     for (const c of di.creditNotes ?? []) if (c.docNo === docNo) return c.pdf ? "filled" : "empty";
@@ -603,6 +615,20 @@ export function attachPdfToOrder(
       order: { ...order, docFlow: { ...df, proforma: { ...pf, pdf } } },
       status: "attached",
     };
+  }
+  // pro formas supplémentaires (Husbands)
+  if ((df.extraProformas ?? []).some((p) => p.docNo === docNo)) {
+    let epAlready = false;
+    const extraProformas = (df.extraProformas ?? []).map((p) => {
+      if (p.docNo !== docNo) return p;
+      if (p.pdf) {
+        epAlready = true;
+        return p;
+      }
+      return { ...p, pdf };
+    });
+    if (epAlready) return { order, status: "already" };
+    return { order: { ...order, docFlow: { ...df, extraProformas } }, status: "attached" };
   }
   // deposit invoices (under the pro forma)
   if ((pf?.depositInvoices ?? []).some((di) => di.docNo === docNo)) {

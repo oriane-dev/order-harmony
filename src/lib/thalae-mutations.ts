@@ -189,6 +189,45 @@ export function setProformaCurrency(order: RawOrder, devise: string | undefined)
   return withDocFlow(order, { ...df, proforma: { ...df.proforma, devise } });
 }
 
+/* ── Pro formas supplémentaires (Husbands : plusieurs par commande) ─────── */
+
+export function removeExtraProforma(order: RawOrder, docNo: string): RawOrder {
+  const df = ensureDocFlow(order);
+  const p = (df.extraProformas ?? []).find((x) => x.docNo === docNo);
+  removePdf(p?.pdf);
+  return withDocFlow(order, {
+    ...df,
+    extraProformas: (df.extraProformas ?? []).filter((x) => x.docNo !== docNo),
+  });
+}
+
+export async function setExtraProformaPdf(
+  order: RawOrder,
+  docNo: string,
+  file: File,
+): Promise<RawOrder> {
+  const df = ensureDocFlow(order);
+  const p = (df.extraProformas ?? []).find((x) => x.docNo === docNo);
+  removePdf(p?.pdf);
+  const pdf = await uploadPdf(file);
+  return withDocFlow(order, {
+    ...df,
+    extraProformas: (df.extraProformas ?? []).map((x) => (x.docNo === docNo ? { ...x, pdf } : x)),
+  });
+}
+
+export function clearExtraProformaPdf(order: RawOrder, docNo: string): RawOrder {
+  const df = ensureDocFlow(order);
+  const p = (df.extraProformas ?? []).find((x) => x.docNo === docNo);
+  removePdf(p?.pdf);
+  return withDocFlow(order, {
+    ...df,
+    extraProformas: (df.extraProformas ?? []).map((x) =>
+      x.docNo === docNo ? { ...x, pdf: null } : x,
+    ),
+  });
+}
+
 // Date de la pro forma = échéance de l'acompte (sert à planifier l'acompte dans
 // l'échéancier et le calendrier).
 export function setProformaDate(order: RawOrder, docDate: string): RawOrder {

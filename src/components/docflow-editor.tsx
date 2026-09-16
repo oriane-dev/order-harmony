@@ -1109,6 +1109,40 @@ export function DocflowEditor({
             mutation={mutation}
           />
         ))}
+
+        {/* Pro formas supplémentaires (Husbands : une par ligne SO) */}
+        {(df?.extraProformas ?? []).length > 0 && (
+          <div className="pt-3 mt-1 border-t border-border space-y-2">
+            <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+              Autres pro formas · {(df?.extraProformas ?? []).length}
+            </div>
+            {(df?.extraProformas ?? []).map((p) => (
+              <div key={p.docNo} className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="num font-medium">{p.docNo}</span>
+                {p.montant != null && (
+                  <span className="num text-muted-foreground">
+                    {shortMoney(p.montant, p.devise || currency)}
+                  </span>
+                )}
+                {p.docDate && <span className="text-muted-foreground">{fmtDate(p.docDate)}</span>}
+                <PdfSlot
+                  pdf={p.pdf}
+                  label="PDF"
+                  busy={mutation.isPending}
+                  onUpload={(f) => mutation.mutate((o) => M.setExtraProformaPdf(o, p.docNo!, f))}
+                  onDelete={() => mutation.mutate((o) => M.clearExtraProformaPdf(o, p.docNo!))}
+                />
+                <button
+                  onClick={() => mutation.mutate((o) => M.removeExtraProforma(o, p.docNo!))}
+                  className="ml-auto text-muted-foreground hover:text-destructive"
+                  title="Retirer cette pro forma"
+                >
+                  <Trash2 className="size-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="space-y-3">
