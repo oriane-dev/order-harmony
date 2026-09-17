@@ -43,3 +43,20 @@ export function signInWithPassword(email: string, password: string) {
 export function signOut() {
   return supabase.auth.signOut();
 }
+
+// Définit (ou change) le mot de passe de l'utilisateur actuellement en session.
+// Utilisé après un lien d'invitation ou de réinitialisation : le lien a déjà
+// ouvert une session (Supabase la détecte dans l'URL), il ne reste qu'à choisir
+// un mot de passe.
+export function updatePassword(password: string) {
+  return supabase.auth.updateUser({ password });
+}
+
+// Envoie l'e-mail « mot de passe oublié ». Le lien reçu ramène sur cette même
+// page avec un jeton de récupération, qui déclenche l'écran « définir un mot de
+// passe ». `redirectTo` doit figurer dans les Redirect URLs autorisées de Supabase.
+export function sendPasswordReset(email: string) {
+  return supabase.auth.resetPasswordForEmail(email.trim(), {
+    redirectTo: typeof window !== "undefined" ? window.location.origin : undefined,
+  });
+}
