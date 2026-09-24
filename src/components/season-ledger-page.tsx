@@ -461,8 +461,11 @@ export function SeasonLedgerContent({
   const depositsTot = sumOf(ledger.deposits);
   const paymentsTot = sumOf(ledger.payments);
   const returnsTot = sumOf(ledger.returns ?? []);
-  const facturedNet = invoicesTot - creditsTot;
-  const balance = facturedNet - paymentsTot - depositsTot - returnsTot;
+  // Les factures de livraison excluent déjà l'acompte : les factures d'acompte
+  // (deposits) font donc partie du facturé et s'AJOUTENT au total (sinon il en
+  // manque). Leur paiement éventuel figure, lui, dans la table Paiements.
+  const facturedNet = invoicesTot + depositsTot - creditsTot;
+  const balance = facturedNet - paymentsTot - returnsTot;
 
   const delMutation = useMutation({
     mutationFn: () => M.deleteOrder(order.id, cfg.ordersTable),
@@ -514,7 +517,7 @@ export function SeasonLedgerContent({
           <KpiCard label="Total facturé" value={facturedNet} currency={currency} />
           <KpiCard label="Avoirs" value={creditsTot} currency={currency} />
           <KpiCard label="Stock rendu" value={returnsTot} currency={currency} />
-          <KpiCard label="Acomptes" value={depositsTot} currency={currency} tone="positive" />
+          <KpiCard label="Acomptes facturés" value={depositsTot} currency={currency} />
           <KpiCard label="Paiements" value={paymentsTot} currency={currency} tone="positive" />
           <KpiCard
             label="Balance"
@@ -550,25 +553,24 @@ export function SeasonLedgerContent({
           totalTone="danger"
         />
 
-        {/* Total facturé net */}
-        <div className="card-elev p-5 flex items-center justify-between">
-          <span className="font-medium">Total facturé (factures − avoirs)</span>
-          <span className="font-serif text-2xl num">{eur(facturedNet, currency)}</span>
-        </div>
-
-        {/* Acomptes */}
+        {/* Acomptes (factures d'acompte) — comptent dans le facturé */}
         <LedgerTable
-          title="Acomptes (deposit)"
+          title="Acomptes (factures d'acompte)"
           rows={ledger.deposits}
           section="deposits"
-          withDocNo={false}
+          withDocNo
           currency={currency}
           mut={mut}
           entity={entity}
           addLabel="Ajouter un acompte"
           totalLabel="Total acomptes"
-          totalTone="positive"
         />
+
+        {/* Total facturé net */}
+        <div className="card-elev p-5 flex items-center justify-between">
+          <span className="font-medium">Total facturé (factures + acomptes − avoirs)</span>
+          <span className="font-serif text-2xl num">{eur(facturedNet, currency)}</span>
+        </div>
 
         {/* Paiements */}
         <LedgerTable
@@ -605,7 +607,7 @@ export function SeasonLedgerContent({
           <div>
             <div className="font-serif text-2xl">Balance</div>
             <div className="text-sm text-muted-foreground">
-              Facturé net − paiements − acomptes − stock rendu
+              Facturé net (factures + acomptes − avoirs) − paiements − stock rendu
             </div>
           </div>
           <span

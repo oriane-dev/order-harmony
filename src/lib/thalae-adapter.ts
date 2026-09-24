@@ -98,11 +98,14 @@ export function rawOrderToLedgerOrder(
   if (row.ledgerKind && row.ledger) {
     const sum = (rows: { montant?: number }[] | undefined) =>
       (rows ?? []).reduce((a, r) => a + num(r.montant), 0);
-    const invoicedGross = sum(row.ledger.invoices);
+    // Les factures de livraison excluent déjà l'acompte : les factures d'acompte
+    // (deposits) comptent donc dans le FACTURÉ, pas dans l'encaissé. Leur paiement
+    // éventuel est saisi dans `payments`. Le stock rendu réduit ce qui est dû.
+    const invoicedGross = sum(row.ledger.invoices) + sum(row.ledger.deposits);
     const credits = sum(row.ledger.creditNotes);
     const returns = sum(row.ledger.returns); // stock rendu — déduit de ce qui est dû
     const invoicedNetV = invoicedGross - credits - returns;
-    const paidV = sum(row.ledger.payments) + sum(row.ledger.deposits);
+    const paidV = sum(row.ledger.payments);
     const balance = invoicedNetV - paidV;
     return {
       id: row.id,
