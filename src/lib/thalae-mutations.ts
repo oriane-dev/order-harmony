@@ -1023,4 +1023,96 @@ export function deleteComment(order: RawOrder, commentId: string): RawOrder {
   return { ...order, comments: (order.comments ?? []).filter((c) => c.id !== commentId) };
 }
 
+/* ── FICHE REGISTRE SAISONNIER (24/7) ─────────────────────────────────── */
+
+import type { RawLedger, RawLedgerEntry } from "@/lib/thalae-types";
+
+export type LedgerSection = keyof RawLedger; // invoices | creditNotes | deposits | payments
+
+function ensureLedger(order: RawOrder): RawLedger {
+  return (
+    order.ledger ?? { invoices: [], creditNotes: [], deposits: [], payments: [] }
+  );
+}
+
+function withSection(
+  order: RawOrder,
+  section: LedgerSection,
+  fn: (rows: RawLedgerEntry[]) => RawLedgerEntry[],
+): RawOrder {
+  const ledger = ensureLedger(order);
+  return { ...order, ledger: { ...ledger, [section]: fn(ledger[section] ?? []) } };
+}
+
+// Ajoute une ligne (facture, avoir, acompte ou paiement). Le PDF est optionnel et
+// se joint ensuite via setLedgerEntryPdf.
+export function addLedgerEntry(
+  order: RawOrder,
+  section: LedgerSection,
+  input: { docNo?: string; montant?: number; date?: string },
+): RawOrder {
+  const entry: RawLedgerEntry = {
+    id: uid(),
+    docNo: input.docNo?.trim() || undefined,
+    montant: input.montant,
+    date: input.date || undefined,
+    pdf: null,
+  };
+  return withSection(order, section, (rows) => [...rows, entry]);
+}
+
+export function updateLedgerEntry(
+  order: RawOrder,
+  section: LedgerSection,
+  id: string,
+  patch: { docNo?: string; montant?: number; date?: string },
+): RawOrder {
+  return withSection(order, section, (rows) =>
+    rows.map((r) =>
+      r.id === id
+        ? {
+            ...r,
+            ...(patch.docNo !== undefined ? { docNo: patch.docNo.trim() || undefined } : {}),
+            ...(patch.montant !== undefined ? { montant: patch.montant } : {}),
+            ...(patch.date !== undefined ? { date: patch.date || undefined } : {}),
+          }
+        : r,
+    ),
+  );
+}
+
+export function removeLedgerEntry(
+  order: RawOrder,
+  section: LedgerSection,
+  id: string,
+): RawOrder {
+  const existing = (ensureLedger(order)[section] ?? []).find((r) => r.id === id);
+  removePdf(existing?.pdf);
+  return withSection(order, section, (rows) => rows.filter((r) => r.id !== id));
+}
+
+export async function setLedgerEntryPdf(
+  order: RawOrder,
+  section: LedgerSection,
+  id: string,
+  file: File,
+): Promise<RawOrder> {
+  const pdf = await uploadDocument(file);
+  return withSection(order, section, (rows) =>
+    rows.map((r) => (r.id === id ? { ...r, pdf } : r)),
+  );
+}
+
+export function clearLedgerEntryPdf(
+  order: RawOrder,
+  section: LedgerSection,
+  id: string,
+): RawOrder {
+  const existing = (ensureLedger(order)[section] ?? []).find((r) => r.id === id);
+  removePdf(existing?.pdf);
+  return withSection(order, section, (rows) =>
+    rows.map((r) => (r.id === id ? { ...r, pdf: null } : r)),
+  );
+}
+
 export { getPlFactures };

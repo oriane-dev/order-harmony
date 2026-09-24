@@ -130,6 +130,25 @@ export interface RawDocFlow {
   returns?: RawReturn[];
 }
 
+// ── Fiche « registre saisonnier » (24/7 Baziszt) ──────────────────────────
+// Modèle simplifié, SANS rapprochement : on agrège toutes les factures d'une
+// saison pour un client dont la relation fonctionne en compte courant (247).
+// Chaque ligne (facture, avoir, acompte, paiement) est une entrée autonome.
+export interface RawLedgerEntry {
+  id: string;
+  docNo?: string; // n° facture / avoir (facultatif pour acomptes & paiements)
+  montant?: number;
+  date?: string; // ISO
+  pdf?: RawPdf | null;
+}
+
+export interface RawLedger {
+  invoices: RawLedgerEntry[]; // factures de la saison
+  creditNotes: RawLedgerEntry[]; // avoirs
+  deposits: RawLedgerEntry[]; // acomptes (déduits de la balance, comme un paiement)
+  payments: RawLedgerEntry[]; // paiements reçus
+}
+
 export interface RawAttachment {
   id: string;
   name?: string;
@@ -206,6 +225,11 @@ export interface RawOrder {
   // Identifiants d'alertes marquées « ce n'est pas une erreur » par l'utilisateur
   // (ex. "a:<id>:invoice_exceeds_po") — l'alerte reste calculée mais est masquée. New field.
   acknowledgedAlerts?: string[];
+  // Fiche agrégée « registre saisonnier » (24/7). Quand `ledgerKind` est défini,
+  // la commande n'est plus une commande classique : elle rend un onglet registre
+  // (factures/avoirs/acomptes/paiements + balance), sans rapprochement ni alertes.
+  ledgerKind?: "season-247";
+  ledger?: RawLedger;
 }
 
 export interface RawConditionPaiement {

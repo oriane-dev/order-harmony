@@ -92,6 +92,42 @@ export function rawOrderToLedgerOrder(
   const party =
     supplierIndex.get((row.fournisseur ?? "").trim()) ?? synthesizeParty(row.fournisseur);
 
+  // Fiche « registre saisonnier » (24/7) : agrégat simple, sans rapprochement.
+  // Facturé net = Σ factures − Σ avoirs ; encaissé = Σ paiements + Σ acomptes ;
+  // balance (reste dû) = facturé net − encaissé. Pas d'alertes, pas de docFlow.
+  if (row.ledgerKind && row.ledger) {
+    const sum = (rows: { montant?: number }[]) => rows.reduce((a, r) => a + num(r.montant), 0);
+    const invoicedGross = sum(row.ledger.invoices);
+    const credits = sum(row.ledger.creditNotes);
+    const invoicedNetV = invoicedGross - credits;
+    const paidV = sum(row.ledger.payments) + sum(row.ledger.deposits);
+    const balance = invoicedNetV - paidV;
+    return {
+      id: row.id,
+      side,
+      number: row.reference ?? row.id,
+      party,
+      createdAt: row.dateCommande ?? row.createdAt ?? "",
+      expectedAt: row.dateLivraison ?? "",
+      currency,
+      status: balance > 0.01 ? "invoice_to_pay" : "closed",
+      totals: {
+        ordered: invoicedNetV,
+        delivered: invoicedNetV,
+        invoiced: invoicedNetV,
+        paid: paidV,
+      },
+      progress: invoicedNetV > 0 ? Math.min(1, paidV / invoicedNetV) : 1,
+      owner: "",
+      docs: [],
+      timeline: [],
+      alerts: [],
+      archived: Boolean(row.archived),
+      season: seasonOf(row.notes),
+      isLedger: true,
+    };
+  }
+
   const docs: DocRef[] = [];
   const timeline: TimelineEvent[] = [];
   const edgePairs: [string, string][] = [];

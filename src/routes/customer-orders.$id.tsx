@@ -1,6 +1,7 @@
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 import { AppShell } from "@/components/app-shell";
 import { OrderDetailContent } from "@/components/order-detail-page";
+import { SeasonLedgerContent } from "@/components/season-ledger-page";
 import type { Order } from "@/lib/ledger-types";
 import { findOrder } from "@/lib/ledger-types";
 import { customerOrdersQueryOptions } from "@/lib/data";
@@ -40,5 +41,6 @@ export const Route = createFileRoute("/customer-orders/$id")({
 
 function CustomerOrderPage() {
   const { order } = Route.useLoaderData();
+  if (order.isLedger) return <SeasonLedgerContent order={order} entity="customer" />;
   return <OrderDetailContent order={order} entity="customer" />;
 }

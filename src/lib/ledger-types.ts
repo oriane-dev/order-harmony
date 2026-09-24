@@ -117,6 +117,8 @@ export interface Order {
   alerts: Alert[];
   archived: boolean; // masquée de l'échéancier et du calendrier (non supprimée)
   season: string; // saison déduite des notes (ex. "AW26"), "" si inconnue
+  // Fiche « registre saisonnier » (24/7) : rendu par un onglet dédié, sans rapprochement.
+  isLedger?: boolean;
   // Axe expédition (fournisseurs uniquement) — affiché À CÔTÉ de `status` (paiement).
   shipmentStatus?: ShipmentStatus;
 }
