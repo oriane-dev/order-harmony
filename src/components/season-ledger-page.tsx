@@ -19,7 +19,13 @@ import { ENTITIES, type Entity } from "@/lib/entities";
 import { fmtDate } from "@/lib/format";
 import { ArrowLeft, Paperclip, Plus, Trash2, Upload, X } from "lucide-react";
 
-const EMPTY_LEDGER: RawLedger = { invoices: [], creditNotes: [], deposits: [], payments: [] };
+const EMPTY_LEDGER: RawLedger = {
+  invoices: [],
+  creditNotes: [],
+  deposits: [],
+  payments: [],
+  returns: [],
+};
 
 function eur(n: number, currency = "EUR") {
   return new Intl.NumberFormat("fr-FR", {
@@ -454,8 +460,9 @@ export function SeasonLedgerContent({
   const creditsTot = sumOf(ledger.creditNotes);
   const depositsTot = sumOf(ledger.deposits);
   const paymentsTot = sumOf(ledger.payments);
+  const returnsTot = sumOf(ledger.returns ?? []);
   const facturedNet = invoicesTot - creditsTot;
-  const balance = facturedNet - paymentsTot - depositsTot;
+  const balance = facturedNet - paymentsTot - depositsTot - returnsTot;
 
   const delMutation = useMutation({
     mutationFn: () => M.deleteOrder(order.id, cfg.ordersTable),
@@ -503,9 +510,10 @@ export function SeasonLedgerContent({
         </div>
 
         {/* Résumé */}
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           <KpiCard label="Total facturé" value={facturedNet} currency={currency} />
           <KpiCard label="Avoirs" value={creditsTot} currency={currency} />
+          <KpiCard label="Stock rendu" value={returnsTot} currency={currency} />
           <KpiCard label="Acomptes" value={depositsTot} currency={currency} tone="positive" />
           <KpiCard label="Paiements" value={paymentsTot} currency={currency} tone="positive" />
           <KpiCard
@@ -576,6 +584,20 @@ export function SeasonLedgerContent({
           totalTone="positive"
         />
 
+        {/* Stock rendu */}
+        <LedgerTable
+          title="Stock rendu"
+          rows={ledger.returns ?? []}
+          section="returns"
+          withDocNo={false}
+          currency={currency}
+          mut={mut}
+          entity={entity}
+          addLabel="Ajouter un retour"
+          totalLabel="Total stock rendu"
+          totalTone="danger"
+        />
+
         {/* Balance */}
         <div
           className={`card-elev p-6 flex items-center justify-between ${balance > 0.01 ? "border-warning/40" : "border-success/40"}`}
@@ -583,7 +605,7 @@ export function SeasonLedgerContent({
           <div>
             <div className="font-serif text-2xl">Balance</div>
             <div className="text-sm text-muted-foreground">
-              Facturé net − paiements − acomptes
+              Facturé net − paiements − acomptes − stock rendu
             </div>
           </div>
           <span

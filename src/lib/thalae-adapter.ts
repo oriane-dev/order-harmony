@@ -96,10 +96,12 @@ export function rawOrderToLedgerOrder(
   // Facturé net = Σ factures − Σ avoirs ; encaissé = Σ paiements + Σ acomptes ;
   // balance (reste dû) = facturé net − encaissé. Pas d'alertes, pas de docFlow.
   if (row.ledgerKind && row.ledger) {
-    const sum = (rows: { montant?: number }[]) => rows.reduce((a, r) => a + num(r.montant), 0);
+    const sum = (rows: { montant?: number }[] | undefined) =>
+      (rows ?? []).reduce((a, r) => a + num(r.montant), 0);
     const invoicedGross = sum(row.ledger.invoices);
     const credits = sum(row.ledger.creditNotes);
-    const invoicedNetV = invoicedGross - credits;
+    const returns = sum(row.ledger.returns); // stock rendu — déduit de ce qui est dû
+    const invoicedNetV = invoicedGross - credits - returns;
     const paidV = sum(row.ledger.payments) + sum(row.ledger.deposits);
     const balance = invoicedNetV - paidV;
     return {

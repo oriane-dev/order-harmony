@@ -147,6 +147,7 @@ export interface RawLedger {
   creditNotes: RawLedgerEntry[]; // avoirs
   deposits: RawLedgerEntry[]; // acomptes (déduits de la balance, comme un paiement)
   payments: RawLedgerEntry[]; // paiements reçus
+  returns?: RawLedgerEntry[]; // stock rendu — montant retourné, déduit de ce qui est dû
 }
 
 export interface RawAttachment {

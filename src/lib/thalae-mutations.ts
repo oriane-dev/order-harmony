@@ -1030,9 +1030,9 @@ import type { RawLedger, RawLedgerEntry } from "@/lib/thalae-types";
 export type LedgerSection = keyof RawLedger; // invoices | creditNotes | deposits | payments
 
 function ensureLedger(order: RawOrder): RawLedger {
-  return (
-    order.ledger ?? { invoices: [], creditNotes: [], deposits: [], payments: [] }
-  );
+  const l = order.ledger ?? { invoices: [], creditNotes: [], deposits: [], payments: [] };
+  // `returns` (stock rendu) a été ajouté après coup : garantir le tableau.
+  return { ...l, returns: l.returns ?? [] };
 }
 
 function withSection(
