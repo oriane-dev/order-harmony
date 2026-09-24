@@ -363,6 +363,68 @@ function LedgerTable({
   );
 }
 
+/* ── Supporting documents (BL, pro forma…) ─────────────────────────────── */
+function OtherDocuments({
+  order,
+  mut,
+}: {
+  order: RawOrder;
+  mut: Mut;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  const atts = order.attachments ?? [];
+  const busy = mut.isPending;
+  return (
+    <section className="card-elev p-5">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="font-serif text-xl">Autres documents</h3>
+        <input
+          ref={ref}
+          type="file"
+          accept=".pdf,image/*"
+          className="hidden"
+          onChange={(e) => {
+            if (e.target.files?.[0]) mut.mutate((o) => M.addAttachment(o, e.target.files![0]));
+            e.target.value = "";
+          }}
+        />
+        <Button size="sm" variant="outline" disabled={busy} onClick={() => ref.current?.click()}>
+          <Plus className="size-3.5" /> Ajouter un document
+        </Button>
+      </div>
+      <p className="text-xs text-muted-foreground mb-3">
+        Bordereaux de livraison, pro formas et autres pièces rattachées à la saison.
+      </p>
+      {atts.length === 0 ? (
+        <div className="text-sm text-muted-foreground italic">Aucun document.</div>
+      ) : (
+        <ul className="space-y-1.5">
+          {atts.map((a) => (
+            <li key={a.id} className="flex items-center justify-between gap-3 text-sm">
+              <a
+                href={a.url}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 text-accent hover:underline truncate"
+              >
+                <Paperclip className="size-3.5 shrink-0" /> {a.name || "Document"}
+              </a>
+              <button
+                disabled={busy}
+                onClick={() => mut.mutate((o) => M.removeAttachment(o, a.id))}
+                className="text-muted-foreground hover:text-destructive shrink-0"
+                aria-label="Supprimer le document"
+              >
+                <Trash2 className="size-4" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 /* ── The page ──────────────────────────────────────────────────────────── */
 export function SeasonLedgerContent({
   order: initialOrder,
@@ -530,6 +592,9 @@ export function SeasonLedgerContent({
             {eur(balance, currency)}
           </span>
         </div>
+
+        {/* Autres documents (BL, pro forma…) */}
+        {raw && <OtherDocuments order={raw} mut={mut} />}
       </div>
     </AppShell>
   );
