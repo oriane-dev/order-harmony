@@ -1031,8 +1031,9 @@ export type LedgerSection = keyof RawLedger; // invoices | creditNotes | deposit
 
 function ensureLedger(order: RawOrder): RawLedger {
   const l = order.ledger ?? { invoices: [], creditNotes: [], deposits: [], payments: [] };
-  // `returns` (stock rendu) a été ajouté après coup : garantir le tableau.
-  return { ...l, returns: l.returns ?? [] };
+  // `depositPayments` (acomptes payés) et `returns` (stock rendu) ont été ajoutés
+  // après coup : garantir les tableaux.
+  return { ...l, depositPayments: l.depositPayments ?? [], returns: l.returns ?? [] };
 }
 
 function withSection(

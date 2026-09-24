@@ -105,7 +105,8 @@ export function rawOrderToLedgerOrder(
     const credits = sum(row.ledger.creditNotes);
     const returns = sum(row.ledger.returns); // stock rendu — déduit de ce qui est dû
     const invoicedNetV = invoicedGross - credits - returns;
-    const paidV = sum(row.ledger.payments);
+    // Encaissé = paiements de livraison + acomptes payés.
+    const paidV = sum(row.ledger.payments) + sum(row.ledger.depositPayments);
     const balance = invoicedNetV - paidV;
     return {
       id: row.id,

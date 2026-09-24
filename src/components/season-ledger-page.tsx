@@ -460,12 +460,13 @@ export function SeasonLedgerContent({
   const creditsTot = sumOf(ledger.creditNotes);
   const depositsTot = sumOf(ledger.deposits);
   const paymentsTot = sumOf(ledger.payments);
+  const depositPaymentsTot = sumOf(ledger.depositPayments ?? []);
   const returnsTot = sumOf(ledger.returns ?? []);
   // Les factures de livraison excluent déjà l'acompte : les factures d'acompte
-  // (deposits) font donc partie du facturé et s'AJOUTENT au total (sinon il en
-  // manque). Leur paiement éventuel figure, lui, dans la table Paiements.
+  // (deposits) font partie du facturé et s'AJOUTENT au total. Leur règlement est
+  // suivi à part dans « Acomptes payés », déduit de la balance comme un paiement.
   const facturedNet = invoicesTot + depositsTot - creditsTot;
-  const balance = facturedNet - paymentsTot - returnsTot;
+  const balance = facturedNet - paymentsTot - depositPaymentsTot - returnsTot;
 
   const delMutation = useMutation({
     mutationFn: () => M.deleteOrder(order.id, cfg.ordersTable),
@@ -515,10 +516,10 @@ export function SeasonLedgerContent({
         {/* Résumé */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           <KpiCard label="Total facturé" value={facturedNet} currency={currency} />
-          <KpiCard label="Avoirs" value={creditsTot} currency={currency} />
-          <KpiCard label="Stock rendu" value={returnsTot} currency={currency} />
           <KpiCard label="Acomptes facturés" value={depositsTot} currency={currency} />
           <KpiCard label="Paiements" value={paymentsTot} currency={currency} tone="positive" />
+          <KpiCard label="Acomptes payés" value={depositPaymentsTot} currency={currency} tone="positive" />
+          <KpiCard label="Stock rendu" value={returnsTot} currency={currency} />
           <KpiCard
             label="Balance"
             value={balance}
@@ -586,6 +587,20 @@ export function SeasonLedgerContent({
           totalTone="positive"
         />
 
+        {/* Acomptes payés (règlements des factures d'acompte) */}
+        <LedgerTable
+          title="Acomptes payés"
+          rows={ledger.depositPayments ?? []}
+          section="depositPayments"
+          withDocNo={false}
+          currency={currency}
+          mut={mut}
+          entity={entity}
+          addLabel="Ajouter un acompte payé"
+          totalLabel="Total acomptes payés"
+          totalTone="positive"
+        />
+
         {/* Stock rendu */}
         <LedgerTable
           title="Stock rendu"
@@ -607,7 +622,7 @@ export function SeasonLedgerContent({
           <div>
             <div className="font-serif text-2xl">Balance</div>
             <div className="text-sm text-muted-foreground">
-              Facturé net (factures + acomptes − avoirs) − paiements − stock rendu
+              Facturé net − paiements − acomptes payés − stock rendu
             </div>
           </div>
           <span

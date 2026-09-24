@@ -143,10 +143,11 @@ export interface RawLedgerEntry {
 }
 
 export interface RawLedger {
-  invoices: RawLedgerEntry[]; // factures de la saison
-  creditNotes: RawLedgerEntry[]; // avoirs
-  deposits: RawLedgerEntry[]; // acomptes (déduits de la balance, comme un paiement)
-  payments: RawLedgerEntry[]; // paiements reçus
+  invoices: RawLedgerEntry[]; // factures de livraison (hors acompte)
+  creditNotes: RawLedgerEntry[]; // avoirs — réduisent le facturé
+  deposits: RawLedgerEntry[]; // FACTURES d'acompte — comptent dans le facturé
+  payments: RawLedgerEntry[]; // paiements des factures de livraison
+  depositPayments?: RawLedgerEntry[]; // ACOMPTES PAYÉS — encaissés, déduits de la balance
   returns?: RawLedgerEntry[]; // stock rendu — montant retourné, déduit de ce qui est dû
 }
 
